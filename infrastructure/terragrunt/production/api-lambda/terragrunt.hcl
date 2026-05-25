@@ -1,0 +1,26 @@
+include "root" {
+  path = find_in_parent_folders()
+}
+
+include "env" {
+  path = "${get_terragrunt_dir()}/../../_env/production.hcl"
+}
+
+terraform {
+  source = "../../../terraform/modules/api-lambda"
+}
+
+dependency "sqs" {
+  config_path = "../sqs"
+
+  mock_outputs = {
+    queue_url = "https://sqs.ap-south-1.amazonaws.com/000000000000/mock-queue"
+    queue_arn = "arn:aws:sqs:ap-south-1:000000000000:mock-queue"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+}
+
+inputs = {
+  sqs_queue_url = dependency.sqs.outputs.queue_url
+  sqs_queue_arn = dependency.sqs.outputs.queue_arn
+}

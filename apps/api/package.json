@@ -1,0 +1,33 @@
+{
+  "name": "@club-connect/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "worker:dev": "tsx watch src/worker/handler.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.600.0",
+    "@aws-sdk/client-sqs": "^3.600.0",
+    "@club-connect/db": "workspace:*",
+    "@club-connect/notifications": "workspace:*",
+    "@club-connect/types": "workspace:*",
+    "jose": "^5.4.0",
+    "next": "^14.2.0",
+    "papaparse": "^5.4.1",
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.140",
+    "@types/node": "^20.14.0",
+    "@types/papaparse": "^5.3.14",
+    "@types/react": "^18.3.0",
+    "tsx": "^4.15.0",
+    "typescript": "^5.4.0"
+  }
+}
