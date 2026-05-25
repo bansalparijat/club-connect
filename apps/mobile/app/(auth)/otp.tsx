@@ -8,7 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native'
-import { useRouter, useLocalSearchParams } from 'expo-router'
+import { useRouter } from 'expo-router'
 import { authApi } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 import { useClubStore } from '@/store/club'
@@ -19,7 +19,7 @@ const RESEND_TIMEOUT = 30
 
 export default function OtpScreen() {
   const router = useRouter()
-  const { phone } = useLocalSearchParams<{ phone: string }>()
+  const phone = useAuthStore((s) => s.pendingPhone) ?? ''
   const { setAuth } = useAuthStore()
   const loadClubs = useClubStore((s) => s.loadClubs)
 

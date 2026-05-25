@@ -12,10 +12,12 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { authApi } from '@/api/client'
+import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
 
 export default function PhoneScreen() {
   const router = useRouter()
+  const setPendingPhone = useAuthStore((s) => s.setPendingPhone)
   const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -31,7 +33,8 @@ export default function PhoneScreen() {
     setLoading(true)
     try {
       await authApi.sendOtp(normalized)
-      router.push({ pathname: '/(auth)/otp', params: { phone: normalized } })
+      setPendingPhone(normalized)
+      router.push('/(auth)/otp')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to send OTP'
       setError(msg)

@@ -14,8 +14,10 @@ type AuthState = {
   user: AuthUser | null
   isLoading: boolean
   isAuthenticated: boolean
+  pendingPhone: string | null
 
   // Actions
+  setPendingPhone: (phone: string) => void
   setAuth: (user: AuthUser, accessToken: string, refreshToken: string) => Promise<void>
   updateUser: (updates: Partial<AuthUser>) => void
   restoreSession: () => Promise<void>
@@ -26,6 +28,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: true,
   isAuthenticated: false,
+  pendingPhone: null,
+
+  setPendingPhone: (phone) => set({ pendingPhone: phone }),
 
   setAuth: async (user, accessToken, refreshToken) => {
     await setTokens(accessToken, refreshToken)
