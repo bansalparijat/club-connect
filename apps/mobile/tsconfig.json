@@ -2,16 +2,24 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-native",
-    "lib": ["ES2020"],
+    "lib": [
+      "ES2020"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     },
     "strict": true,
     "allowJs": true,
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.d.ts", "expo-env.d.ts"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.d.ts"
+  ]
 }

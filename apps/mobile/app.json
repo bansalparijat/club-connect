@@ -12,7 +12,6 @@
       "backgroundColor": "#1a56db"
     },
     "updates": {
-      "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/your-project-id"
     },
     "assetBundlePatterns": ["**/*"],
