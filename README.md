@@ -59,20 +59,22 @@ You also need one of:
 
 ### Step 1 — Set up the local database
 
-The easiest option is the Supabase CLI:
+**Option A — Docker (recommended)**
+
+```bash
+docker run -d --name pg -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:15
+```
+
+This starts Postgres on port 5432 with username `postgres` and password `password`.
+
+**Option B — Supabase CLI**
 
 ```bash
 npm install -g supabase
 supabase start   # starts local Postgres + Studio on http://localhost:54323
 ```
 
-This outputs connection strings — note the `DB URL`.
-
-Alternatively, use Docker:
-
-```bash
-docker run -d --name pg -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:15
-```
+Note the `DB URL` and `Direct URL` from the output — you'll need them in the next step.
 
 ---
 
@@ -82,13 +84,27 @@ docker run -d --name pg -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:15
 cp .env.example apps/api/.env.local
 ```
 
-Edit `apps/api/.env.local` with your local values:
+Edit `apps/api/.env.local`. Use the values that match your chosen database option:
+
+**If using Docker (Option A):**
 
 ```env
-# Database (Supabase local or Docker postgres)
+DATABASE_URL="postgresql://postgres:password@127.0.0.1:5432/postgres?connection_limit=1"
+DIRECT_URL="postgresql://postgres:password@127.0.0.1:5432/postgres"
+```
+
+**If using Supabase CLI (Option B):**
+
+```env
 DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres?pgbouncer=true&connection_limit=1"
 DIRECT_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+```
 
+> The password in `DATABASE_URL` must exactly match `POSTGRES_PASSWORD` from the `docker run` command. A mismatch causes `Authentication failed` errors.
+
+Add the remaining vars to the same file:
+
+```env
 # JWT — any random strings work locally
 JWT_SECRET="local-dev-secret-32-chars-minimum"
 JWT_REFRESH_SECRET="local-dev-refresh-secret-32-chars"
@@ -186,6 +202,17 @@ Since `TWILIO_VERIFY_SERVICE_SID` is not set, the OTP is always **`123456`**:
 ---
 
 ### Troubleshooting
+
+**`Authentication failed` on `pnpm db:migrate`** — The password in `DATABASE_URL` doesn't match what the Docker container was started with. Recreate the container with a known password and update `.env.local` to match:
+
+```bash
+docker rm -f pg
+docker run -d --name pg -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:15
+```
+
+Then set `DATABASE_URL` and `DIRECT_URL` in `apps/api/.env.local` to use `password` as shown in Step 2.
+
+**`Environment variable not found: DIRECT_URL`** — You're missing `apps/api/.env.local`. Run `cp .env.example apps/api/.env.local` and fill in the values from Step 2.
 
 **"Network request failed" on device** — Your phone can't reach `localhost`. Use your machine's IP in `apiUrl` (Step 5).
 
