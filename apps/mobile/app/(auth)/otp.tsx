@@ -33,8 +33,16 @@ export default function OtpScreen() {
   const [resending, setResending] = useState(false)
   const inputRef = useRef<TextInput>(null)
 
+  // If no pending phone (e.g. app reloaded while on this screen), go back to phone entry
+  useEffect(() => {
+    if (!phone) {
+      router.replace('/(auth)/phone')
+    }
+  }, [])
+
   // Delayed focus fixes Android keyboard not appearing on hidden inputs
   useEffect(() => {
+    if (!phone) return
     const focusTimeout = setTimeout(() => {
       inputRef.current?.focus()
     }, 150)
