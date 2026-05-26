@@ -5,6 +5,7 @@ export default function MatchLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="[id]" />
       <Stack.Screen name="create" />
+      <Stack.Screen name="edit" />
     </Stack>
   )
 }

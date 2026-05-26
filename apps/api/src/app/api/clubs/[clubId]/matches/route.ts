@@ -48,14 +48,17 @@ export const GET = withAuth(async (req: NextRequest, ctx: RouteContext, userId: 
   const status = searchParams.get('status') ?? undefined
   const from = searchParams.get('from')
   const to = searchParams.get('to')
+  const seasonId = searchParams.get('seasonId') ?? undefined
   const page = Math.max(1, Number(searchParams.get('page') ?? '1'))
   const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') ?? '20')))
   const skip = (page - 1) * limit
 
   const where = {
     clubId,
+    ...(seasonId ? { seasonId } : {}),
     ...(status ? { status: status as 'OPEN' | 'CLOSED' | 'CANCELLED' | 'DRAFT' } : { status: { not: 'CANCELLED' as const } }),
-    date: {
+    // When browsing by season, show all matches regardless of date; otherwise default to upcoming
+    date: seasonId ? undefined : {
       ...(from ? { gte: new Date(from) } : { gte: new Date() }),
       ...(to ? { lte: new Date(to) } : {}),
     },
@@ -74,7 +77,7 @@ export const GET = withAuth(async (req: NextRequest, ctx: RouteContext, userId: 
       },
       skip,
       take: limit,
-      orderBy: { date: 'asc' },
+      orderBy: { date: seasonId ? 'desc' : 'asc' },
     }),
     prisma.match.count({ where }),
   ])

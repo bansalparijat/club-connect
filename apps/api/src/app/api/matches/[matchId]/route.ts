@@ -8,6 +8,7 @@ import { buildMatchCancelledParams, formatMatchDate, type TemplateName } from '@
 
 const updateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
+  date: z.string().datetime().optional(),
   venue: z.string().min(1).max(200).optional(),
   capacity: z.number().int().min(1).optional(),
   waitlistSize: z.number().int().min(0).optional(),
@@ -30,7 +31,7 @@ export const GET = withMatchAccess(async (_req: NextRequest, _ctx: RouteContext,
         include: { user: true },
         orderBy: [{ position: 'asc' }, { respondedAt: 'asc' }],
       },
-      feePayments: { where: { userId } },
+      feePayments: true,
     },
   })
   if (!match) return err.notFound('Match')
@@ -41,7 +42,25 @@ export const GET = withMatchAccess(async (_req: NextRequest, _ctx: RouteContext,
   const dropped = match.availability.filter(a => a.status === 'DROPPED')
 
   const myAvailability = match.availability.find(a => a.user.id === userId)
-  const myFeePayment = match.feePayments[0]
+  const myFeePayment = match.feePayments.find(f => f.userId === userId)
+
+  // Build fee payment map
+  const feeMap: Record<string, boolean> = {}
+  match.feePayments.forEach(f => { feeMap[f.userId] = f.markedPaid })
+
+  // Fetch house assignments for players
+  const seasonId = match.seasonId
+  let playerHouseMap: Record<string, { id: string; name: string; color: string | null; logoUrl: string | null }> = {}
+  if (seasonId) {
+    const allUserIds = match.availability.map(a => a.userId)
+    const houseMembers = await prisma.houseMembership.findMany({
+      where: { userId: { in: allUserIds }, seasonId },
+      include: { house: true },
+    })
+    houseMembers.forEach(hm => {
+      playerHouseMap[hm.userId] = { id: hm.house.id, name: hm.house.name, color: hm.house.color, logoUrl: hm.house.logoUrl }
+    })
+  }
 
   function userToDTO(u: { id: string; phone: string; name: string; profilePhotoUrl: string | null; isStub: boolean; createdAt: Date }) {
     return { ...u, createdAt: u.createdAt.toISOString() }
@@ -52,8 +71,19 @@ export const GET = withMatchAccess(async (_req: NextRequest, _ctx: RouteContext,
     parameters: match.parameters,
     houses: match.houses.map(mh => mh.house),
     availability: {
-      confirmed: confirmed.map(a => ({ user: userToDTO(a.user), respondedAt: a.respondedAt.toISOString() })),
-      waitlisted: waitlisted.map(a => ({ user: userToDTO(a.user), position: a.position!, respondedAt: a.respondedAt.toISOString() })),
+      confirmed: confirmed.map(a => ({
+        user: userToDTO(a.user),
+        respondedAt: a.respondedAt.toISOString(),
+        house: playerHouseMap[a.userId] ?? null,
+        hasPaid: feeMap[a.userId] ?? false,
+      })),
+      waitlisted: waitlisted.map(a => ({
+        user: userToDTO(a.user),
+        position: a.position!,
+        respondedAt: a.respondedAt.toISOString(),
+        house: playerHouseMap[a.userId] ?? null,
+        hasPaid: feeMap[a.userId] ?? false,
+      })),
       unavailable: unavailable.map(a => ({ user: userToDTO(a.user), respondedAt: a.respondedAt.toISOString() })),
       dropped: dropped.map(a => ({ user: userToDTO(a.user), respondedAt: a.respondedAt.toISOString() })),
     },
@@ -71,6 +101,8 @@ export const PATCH = withMatchAccess(async (req: NextRequest, _ctx: RouteContext
 
   if (!(await isClubAdmin(userId, match.clubId))) return err.forbidden('Admin access required')
 
+  if (match.status === 'CLOSED') return err.unprocessable('Match is closed and cannot be modified')
+
   let body: unknown
   try { body = await req.json() } catch { return err.badRequest('Invalid JSON') }
 
@@ -84,7 +116,10 @@ export const PATCH = withMatchAccess(async (req: NextRequest, _ctx: RouteContext
     }
   }
 
-  const updated = await prisma.match.update({ where: { id: matchId }, data: parsed.data })
+  const updateData: Record<string, unknown> = { ...parsed.data }
+  if (parsed.data.date) updateData.date = new Date(parsed.data.date)
+
+  const updated = await prisma.match.update({ where: { id: matchId }, data: updateData })
   return ok({ match: matchToDTO(updated) })
 })
 

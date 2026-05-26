@@ -139,7 +139,10 @@ export default function SeasonManagementScreen() {
         keyExtractor={(s) => s.id}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <View style={styles.seasonRow}>
+          <TouchableOpacity
+            style={styles.seasonRow}
+            onPress={() => router.push({ pathname: '/(app)/club/season-matches', params: { seasonId: item.id, seasonName: item.name } } as never)}
+          >
             <View style={{ flex: 1 }}>
               <View style={styles.nameRow}>
                 <Text style={styles.seasonName}>{item.name}</Text>
@@ -152,17 +155,18 @@ export default function SeasonManagementScreen() {
             </View>
             <View style={styles.actions}>
               {!item.isActive && !item.isEnded && (
-                <TouchableOpacity style={styles.actionBtn} onPress={() => handleSetActive(item)}>
+                <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation?.(); handleSetActive(item) }}>
                   <Text style={styles.setActiveText}>Set Active</Text>
                 </TouchableOpacity>
               )}
               {!item.isEnded && (
-                <TouchableOpacity style={styles.actionBtn} onPress={() => handleMarkEnded(item)}>
+                <TouchableOpacity style={styles.actionBtn} onPress={(e) => { e.stopPropagation?.(); handleMarkEnded(item) }}>
                   <Ionicons name="stop-circle-outline" size={20} color="#ef4444" />
                 </TouchableOpacity>
               )}
+              <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
             </View>
-          </View>
+          </TouchableOpacity>
         )}
         ListEmptyComponent={
           <Text style={styles.empty}>No seasons yet. Create one to track house memberships.</Text>

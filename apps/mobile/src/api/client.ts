@@ -228,10 +228,16 @@ export const clubApi = {
     return apiFetch<{ members: Member[]; total: number }>(`/api/clubs/${clubId}/members${qs ? `?${qs}` : ''}`)
   },
 
-  addMember: (clubId: string, data: { phone: string; name: string }) =>
+  addMember: (clubId: string, data: { phone: string; name: string; houseId?: string }) =>
     apiFetch<{ membership: Member; user: { id: string }; isNew: boolean }>(`/api/clubs/${clubId}/members`, {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+
+  bulkAssignHouses: (clubId: string, seasonId: string, assignments: Array<{ userId: string; houseId: string }>) =>
+    apiFetch<{ updated: number }>(`/api/clubs/${clubId}/members/bulk-houses`, {
+      method: 'POST',
+      body: JSON.stringify({ seasonId, assignments }),
     }),
 
   updateMember: (clubId: string, userId: string, data: { role?: string; status?: string }) =>
@@ -306,6 +312,8 @@ export type MatchSummary = {
   houses: House[]
 }
 
+export type PlayerHouse = { id: string; name: string; color: string | null; logoUrl: string | null }
+
 export type MatchDetail = {
   match: {
     id: string
@@ -317,12 +325,13 @@ export type MatchDetail = {
     status: 'DRAFT' | 'OPEN' | 'CLOSED' | 'CANCELLED'
     feeAmount: string | null
     feeCurrency: string | null
+    seasonId: string | null
   }
   parameters: Array<{ key: string; value: string; isCustom: boolean }>
   houses: House[]
   availability: {
-    confirmed: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null }; respondedAt: string }>
-    waitlisted: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null }; position: number; respondedAt: string }>
+    confirmed: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null }; respondedAt: string; house: PlayerHouse | null; hasPaid: boolean }>
+    waitlisted: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null }; position: number; respondedAt: string; house: PlayerHouse | null; hasPaid: boolean }>
     unavailable: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null } }>
     dropped: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null } }>
   }
@@ -332,7 +341,7 @@ export type MatchDetail = {
 }
 
 export const matchApi = {
-  list: (clubId: string, params?: { status?: string; from?: string; to?: string; page?: number; limit?: number }) => {
+  list: (clubId: string, params?: { status?: string; from?: string; to?: string; seasonId?: string; page?: number; limit?: number }) => {
     const qs = new URLSearchParams(params as Record<string, string>).toString()
     return apiFetch<{ matches: MatchSummary[]; total: number }>(`/api/clubs/${clubId}/matches${qs ? `?${qs}` : ''}`)
   },
@@ -356,7 +365,7 @@ export const matchApi = {
 
   get: (matchId: string) => apiFetch<MatchDetail>(`/api/matches/${matchId}`),
 
-  update: (matchId: string, data: Partial<{ title: string; venue: string; capacity: number; waitlistSize: number; feeAmount: number; status: string }>) =>
+  update: (matchId: string, data: Partial<{ title: string; date: string; venue: string; capacity: number; waitlistSize: number; feeAmount: number; status: string }>) =>
     apiFetch<{ match: MatchSummary }>(`/api/matches/${matchId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),

@@ -9,6 +9,8 @@ export default function ClubLayout() {
       <Stack.Screen name="import" />
       <Stack.Screen name="houses" />
       <Stack.Screen name="seasons" />
+      <Stack.Screen name="season-matches" />
+      <Stack.Screen name="bulk-houses" />
       <Stack.Screen name="settings" />
       <Stack.Screen name="profile" />
       <Stack.Screen name="create" />

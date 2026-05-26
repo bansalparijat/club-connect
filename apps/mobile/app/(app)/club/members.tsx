@@ -174,13 +174,22 @@ export default function MemberListScreen() {
           </View>
         )}
         ListFooterComponent={
-          <TouchableOpacity
-            style={styles.importBtn}
-            onPress={() => router.push('/(app)/club/import' as never)}
-          >
-            <Ionicons name="cloud-upload-outline" size={18} color="#1a56db" />
-            <Text style={styles.importText}>Bulk Import Members</Text>
-          </TouchableOpacity>
+          <View style={styles.footerBtns}>
+            <TouchableOpacity
+              style={styles.importBtn}
+              onPress={() => router.push('/(app)/club/import' as never)}
+            >
+              <Ionicons name="cloud-upload-outline" size={18} color="#1a56db" />
+              <Text style={styles.importText}>Bulk Import Members</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.importBtn}
+              onPress={() => router.push('/(app)/club/bulk-houses' as never)}
+            >
+              <Ionicons name="grid-outline" size={18} color="#1a56db" />
+              <Text style={styles.importText}>Assign Houses in Bulk</Text>
+            </TouchableOpacity>
+          </View>
         }
       />
     </SafeAreaView>
@@ -237,13 +246,13 @@ const styles = StyleSheet.create({
   memberPhone: { fontSize: 12, color: '#6b7280', marginBottom: 2 },
   memberHouse: { fontSize: 12, color: '#6b7280' },
   moreBtn: { padding: 4 },
+  footerBtns: { gap: 4 },
   importBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     justifyContent: 'center',
     paddingVertical: 16,
-    marginTop: 8,
   },
   importText: { fontSize: 14, color: '#1a56db', fontWeight: '500' },
 })

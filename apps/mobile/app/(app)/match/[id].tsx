@@ -11,8 +11,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { matchApi, MatchDetail } from '@/api/client'
+import { matchApi, MatchDetail, PlayerHouse } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
+import { useClubStore } from '@/store/club'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
@@ -31,15 +32,24 @@ function formatTime(iso: string) {
 
 type Tab = 'confirmed' | 'waitlisted' | 'unavailable'
 
+function HouseDot({ house }: { house: PlayerHouse | null }) {
+  if (!house) return null
+  if (house.color) return <View style={[styles.houseDot, { backgroundColor: house.color }]} />
+  return <Text style={styles.houseTag}>{house.name.charAt(0)}</Text>
+}
+
 export default function MatchDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const router = useRouter()
   const { user } = useAuthStore()
+  const { activeClub } = useClubStore()
+  const club = activeClub()
 
   const [detail, setDetail] = useState<MatchDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [feeLoading, setFeeLoading] = useState(false)
+  const [completeLoading, setCompleteLoading] = useState(false)
   const [tab, setTab] = useState<Tab>('confirmed')
 
   const load = useCallback(async () => {
@@ -54,6 +64,8 @@ export default function MatchDetailScreen() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  const isAdmin = club?.myRole === 'ADMIN'
 
   async function handleAvailability(status: 'AVAILABLE' | 'UNAVAILABLE') {
     if (!detail) return
@@ -74,28 +86,24 @@ export default function MatchDetailScreen() {
   }
 
   async function handleDropOut() {
-    Alert.alert(
-      'Drop out?',
-      'The next waitlisted player will be notified.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Drop Out',
-          style: 'destructive',
-          onPress: async () => {
-            setActionLoading(true)
-            try {
-              await matchApi.updateAvailability(id, { status: 'DROPPED' })
-              await load()
-            } catch (err: unknown) {
-              Alert.alert('Error', err instanceof Error ? err.message : 'Failed')
-            } finally {
-              setActionLoading(false)
-            }
-          },
+    Alert.alert('Drop out?', 'The next waitlisted player will be notified.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Drop Out',
+        style: 'destructive',
+        onPress: async () => {
+          setActionLoading(true)
+          try {
+            await matchApi.updateAvailability(id, { status: 'DROPPED' })
+            await load()
+          } catch (err: unknown) {
+            Alert.alert('Error', err instanceof Error ? err.message : 'Failed')
+          } finally {
+            setActionLoading(false)
+          }
         },
-      ],
-    )
+      },
+    ])
   }
 
   async function handleMarkFeePaid() {
@@ -110,26 +118,59 @@ export default function MatchDetailScreen() {
     }
   }
 
-  async function handleCancelMatch() {
-    Alert.alert(
-      'Cancel Match?',
-      'All confirmed and waitlisted members will be notified.',
-      [
-        { text: 'Keep', style: 'cancel' },
-        {
-          text: 'Cancel Match',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await matchApi.cancel(id)
-              router.back()
-            } catch (err: unknown) {
-              Alert.alert('Error', err instanceof Error ? err.message : 'Failed')
-            }
-          },
+  async function handleMarkComplete() {
+    Alert.alert('Mark Match Complete?', 'No further changes will be allowed.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Mark Complete',
+        onPress: async () => {
+          setCompleteLoading(true)
+          try {
+            await matchApi.update(id, { status: 'CLOSED' })
+            await load()
+          } catch (err: unknown) {
+            Alert.alert('Error', err instanceof Error ? err.message : 'Failed')
+          } finally {
+            setCompleteLoading(false)
+          }
         },
-      ],
-    )
+      },
+    ])
+  }
+
+  async function handleCancelMatch() {
+    Alert.alert('Cancel Match?', 'All confirmed and waitlisted members will be notified.', [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Cancel Match',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await matchApi.cancel(id)
+            router.back()
+          } catch (err: unknown) {
+            Alert.alert('Error', err instanceof Error ? err.message : 'Failed')
+          }
+        },
+      },
+    ])
+  }
+
+  function handleEdit() {
+    if (!detail) return
+    const { match } = detail
+    router.push({
+      pathname: '/(app)/match/edit',
+      params: {
+        id: match.id,
+        title: match.title,
+        date: match.date,
+        venue: match.venue,
+        capacity: String(match.capacity),
+        waitlistSize: String(match.waitlistSize),
+        feeAmount: match.feeAmount ?? 'null',
+      },
+    } as never)
   }
 
   if (loading || !detail) {
@@ -142,7 +183,7 @@ export default function MatchDetailScreen() {
 
   const { match, parameters, houses, availability, myStatus, fee, captains } = detail
   const isOpen = match.status === 'OPEN'
-  const isAdmin = false // TODO: wire from club store
+  const isClosed = match.status === 'CLOSED'
   const isCaptain = captains.some((c) => c.id === user?.id)
   const canManage = isAdmin || isCaptain
 
@@ -159,14 +200,22 @@ export default function MatchDetailScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Nav header */}
       <View style={styles.navHeader}>
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#374151" />
         </TouchableOpacity>
         <Text style={styles.navTitle} numberOfLines={1}>{match.title}</Text>
-        {canManage && (
-          <TouchableOpacity onPress={handleCancelMatch}>
+        {isAdmin && !isClosed && match.status !== 'CANCELLED' && (
+          <TouchableOpacity
+            onPress={() =>
+              Alert.alert(match.title, undefined, [
+                { text: 'Edit Match', onPress: handleEdit },
+                { text: 'Mark Complete', onPress: handleMarkComplete },
+                { text: 'Cancel Match', style: 'destructive', onPress: handleCancelMatch },
+                { text: 'Dismiss', style: 'cancel' },
+              ])
+            }
+          >
             <Ionicons name="ellipsis-horizontal" size={24} color="#374151" />
           </TouchableOpacity>
         )}
@@ -175,10 +224,12 @@ export default function MatchDetailScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {/* Status badge */}
         {match.status !== 'OPEN' && (
-          <Badge
-            label={match.status}
-            variant={match.status === 'CANCELLED' ? 'red' : 'gray'}
-          />
+          <View style={{ marginBottom: 8 }}>
+            <Badge
+              label={match.status === 'CLOSED' ? 'Completed' : match.status}
+              variant={match.status === 'CANCELLED' ? 'red' : match.status === 'CLOSED' ? 'blue' : 'gray'}
+            />
+          </View>
         )}
 
         {/* Info */}
@@ -209,6 +260,20 @@ export default function MatchDetailScreen() {
           </View>
         )}
 
+        {/* Admin quick actions */}
+        {isAdmin && isOpen && (
+          <View style={styles.adminActions}>
+            <TouchableOpacity style={styles.adminBtn} onPress={handleEdit}>
+              <Ionicons name="pencil-outline" size={16} color="#1a56db" />
+              <Text style={styles.adminBtnText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.adminBtn, styles.adminBtnComplete]} onPress={handleMarkComplete} disabled={completeLoading}>
+              <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+              <Text style={[styles.adminBtnText, { color: '#fff' }]}>Mark Complete</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* My Availability */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>My Availability</Text>
@@ -217,14 +282,7 @@ export default function MatchDetailScreen() {
             <View style={styles.statusRow}>
               <Badge label="You're confirmed" variant="green" />
               {isOpen && (
-                <Button
-                  title="Drop Out"
-                  variant="danger"
-                  size="sm"
-                  onPress={handleDropOut}
-                  loading={actionLoading}
-                  style={styles.dropBtn}
-                />
+                <Button title="Drop Out" variant="danger" size="sm" onPress={handleDropOut} loading={actionLoading} style={styles.dropBtn} />
               )}
             </View>
           )}
@@ -233,25 +291,13 @@ export default function MatchDetailScreen() {
             <View style={styles.statusRow}>
               <Badge label={`#${waitlistPosition} on waitlist`} variant="yellow" />
               {isOpen && (
-                <Button
-                  title="Drop Out"
-                  variant="danger"
-                  size="sm"
-                  onPress={handleDropOut}
-                  loading={actionLoading}
-                  style={styles.dropBtn}
-                />
+                <Button title="Drop Out" variant="danger" size="sm" onPress={handleDropOut} loading={actionLoading} style={styles.dropBtn} />
               )}
             </View>
           )}
 
-          {myStatus === 'UNAVAILABLE' && (
-            <Badge label="Unavailable" variant="red" />
-          )}
-
-          {myStatus === 'DROPPED' && (
-            <Badge label="Dropped" variant="gray" />
-          )}
+          {myStatus === 'UNAVAILABLE' && <Badge label="Unavailable" variant="red" />}
+          {myStatus === 'DROPPED' && <Badge label="Dropped" variant="gray" />}
 
           {isOpen && (
             <View style={styles.availButtons}>
@@ -278,7 +324,9 @@ export default function MatchDetailScreen() {
 
           {!isOpen && (
             <Text style={styles.closedNote}>
-              {match.status === 'CANCELLED' ? 'This match has been cancelled.' : 'Availability is closed.'}
+              {match.status === 'CANCELLED' ? 'This match has been cancelled.'
+               : match.status === 'CLOSED' ? 'This match is completed.'
+               : 'Availability is closed.'}
             </Text>
           )}
         </View>
@@ -292,12 +340,7 @@ export default function MatchDetailScreen() {
               {fee.myMarkedPaid ? (
                 <Badge label="Paid" variant="green" />
               ) : myStatus === 'CONFIRMED' ? (
-                <Button
-                  title="Mark as Paid"
-                  size="sm"
-                  onPress={handleMarkFeePaid}
-                  loading={feeLoading}
-                />
+                <Button title="Mark as Paid" size="sm" onPress={handleMarkFeePaid} loading={feeLoading} />
               ) : (
                 <Badge label="Not applicable" variant="gray" />
               )}
@@ -317,11 +360,9 @@ export default function MatchDetailScreen() {
               >
                 <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
                   {t.charAt(0).toUpperCase() + t.slice(1)} (
-                  {t === 'confirmed'
-                    ? availability.confirmed.length
-                    : t === 'waitlisted'
-                    ? availability.waitlisted.length
-                    : availability.unavailable.length}
+                  {t === 'confirmed' ? availability.confirmed.length
+                   : t === 'waitlisted' ? availability.waitlisted.length
+                   : availability.unavailable.length}
                   )
                 </Text>
               </TouchableOpacity>
@@ -336,6 +377,14 @@ export default function MatchDetailScreen() {
                 <Avatar name={a.user.name} photoUrl={a.user.profilePhotoUrl} size={32} />
                 <Text style={styles.playerName}>{a.user.name}</Text>
                 {isCap && <Badge label="C" variant="blue" />}
+                <HouseDot house={a.house} />
+                {fee && (
+                  <Ionicons
+                    name={a.hasPaid ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={16}
+                    color={a.hasPaid ? '#16a34a' : '#d1d5db'}
+                  />
+                )}
               </View>
             )
           })}
@@ -345,6 +394,14 @@ export default function MatchDetailScreen() {
               <Text style={styles.playerNum}>#{a.position}</Text>
               <Avatar name={a.user.name} photoUrl={a.user.profilePhotoUrl} size={32} />
               <Text style={styles.playerName}>{a.user.name}</Text>
+              <HouseDot house={a.house} />
+              {fee && (
+                <Ionicons
+                  name={a.hasPaid ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={16}
+                  color={a.hasPaid ? '#16a34a' : '#d1d5db'}
+                />
+              )}
             </View>
           ))}
 
@@ -384,14 +441,28 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 14, fontWeight: '700', color: '#374151', marginBottom: 12 },
   infoRow: { fontSize: 14, color: '#374151', marginBottom: 6 },
   paramsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  paramChip: {
-    backgroundColor: '#f3f4f6',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
+  paramChip: { backgroundColor: '#f3f4f6', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   paramKey: { fontSize: 11, color: '#6b7280', marginBottom: 2 },
   paramValue: { fontSize: 13, fontWeight: '600', color: '#111827' },
+  adminActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  adminBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1a56db',
+    backgroundColor: '#fff',
+  },
+  adminBtnComplete: { backgroundColor: '#1a56db', borderColor: '#1a56db' },
+  adminBtnText: { fontSize: 13, fontWeight: '600', color: '#1a56db' },
   statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   dropBtn: { marginLeft: 8 },
   availButtons: { flexDirection: 'row', gap: 8, marginTop: 12 },
@@ -399,16 +470,13 @@ const styles = StyleSheet.create({
   feeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   feeAmount: { fontSize: 18, fontWeight: '700', color: '#111827' },
   tabs: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  tabBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: '#f3f4f6',
-  },
+  tabBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#f3f4f6' },
   tabBtnActive: { backgroundColor: '#1a56db' },
   tabText: { fontSize: 12, fontWeight: '500', color: '#6b7280' },
   tabTextActive: { color: '#fff' },
   playerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#f9fafb' },
   playerNum: { fontSize: 12, color: '#9ca3af', width: 20, textAlign: 'center' },
   playerName: { flex: 1, fontSize: 14, color: '#111827' },
+  houseDot: { width: 12, height: 12, borderRadius: 6 },
+  houseTag: { fontSize: 10, fontWeight: '700', color: '#6b7280', backgroundColor: '#f3f4f6', width: 18, height: 18, borderRadius: 9, textAlign: 'center', lineHeight: 18 },
 })

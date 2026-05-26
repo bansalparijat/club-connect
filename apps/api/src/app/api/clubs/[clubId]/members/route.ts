@@ -8,6 +8,7 @@ import { normalizePhone } from '@/lib/otp'
 const addMemberSchema = z.object({
   phone: z.string().min(7).max(16),
   name: z.string().min(1).max(100),
+  houseId: z.string().optional(),
 })
 
 function memberToDTO(m: {
@@ -87,6 +88,13 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, _
   if (!parsed.success) return err.badRequest('Invalid request', parsed.error.flatten().fieldErrors)
 
   const phone = normalizePhone(parsed.data.phone)
+  const { houseId } = parsed.data
+
+  // Validate houseId if provided
+  if (houseId) {
+    const house = await prisma.house.findFirst({ where: { id: houseId, clubId } })
+    if (!house) return err.badRequest('Invalid house ID')
+  }
 
   // Find or create user
   let user = await prisma.user.findUnique({ where: { phone } })
@@ -102,21 +110,38 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, _
     where: { clubId_userId: { clubId, userId: user.id } },
   })
 
+  let membership
   if (existing) {
     if (existing.status === 'ACTIVE') return err.conflict('User is already a member of this club')
-    // Re-activate if previously left/suspended
-    const updated = await prisma.clubMembership.update({
+    membership = await prisma.clubMembership.update({
       where: { id: existing.id },
       data: { status: 'ACTIVE' },
       include: { user: true },
     })
-    return ok({ membership: memberToDTO({ ...updated, houseAssignment: null }), user: updated.user, isNew: false })
+  } else {
+    membership = await prisma.clubMembership.create({
+      data: { clubId, userId: user.id, role: 'MEMBER', status: 'ACTIVE' },
+      include: { user: true },
+    })
   }
 
-  const membership = await prisma.clubMembership.create({
-    data: { clubId, userId: user.id, role: 'MEMBER', status: 'ACTIVE' },
-    include: { user: true },
-  })
+  // Assign to house in active season if houseId provided
+  let houseAssignment = null
+  if (houseId) {
+    const activeSeason = await prisma.season.findFirst({ where: { clubId, isActive: true } })
+    if (activeSeason) {
+      await prisma.houseMembership.upsert({
+        where: { userId_seasonId: { userId: user.id, seasonId: activeSeason.id } },
+        create: { userId: user.id, seasonId: activeSeason.id, houseId },
+        update: { houseId },
+      })
+      const house = await prisma.house.findUnique({ where: { id: houseId } })
+      if (house) houseAssignment = { house }
+    }
+  }
 
-  return created({ membership: memberToDTO({ ...membership, houseAssignment: null }), user: { ...user, createdAt: user.createdAt.toISOString() }, isNew })
+  if (existing) {
+    return ok({ membership: memberToDTO({ ...membership, houseAssignment }), user: membership.user, isNew: false })
+  }
+  return created({ membership: memberToDTO({ ...membership, houseAssignment }), user: { ...user, createdAt: user.createdAt.toISOString() }, isNew })
 })
