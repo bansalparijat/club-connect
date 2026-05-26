@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  NativeModules,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -27,6 +28,21 @@ export default function PhoneScreen() {
     AsyncStorage.getItem('last_verified_phone').then((v) => {
       if (v) setSavedPhone(v)
     })
+
+    if (Platform.OS === 'android') {
+      // Access the native module directly via NativeModules — safely returns undefined
+      // when not linked (Expo Go / old build), avoiding TurboModuleRegistry.getEnforcing crash.
+      const phoneHint = NativeModules.AndroidPhoneNumberHint
+      if (phoneHint?.showPhoneNumberHint) {
+        phoneHint.showPhoneNumberHint(null)
+          .then((detected: string | null) => {
+            if (!detected) return
+            const local = detected.startsWith('+91') ? detected.slice(3) : detected
+            setPhone(local)
+          })
+          .catch(() => { /* user dismissed or unavailable */ })
+      }
+    }
   }, [])
 
   const normalized = phone.startsWith('+') ? phone : `+91${phone.replace(/\s/g, '')}`

@@ -224,7 +224,8 @@ export const clubApi = {
 
   // Members
   getMembers: (clubId: string, params?: { status?: string; role?: string; page?: number; limit?: number; search?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString()
+    const filtered = Object.fromEntries(Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== ''))
+    const qs = new URLSearchParams(filtered as Record<string, string>).toString()
     return apiFetch<{ members: Member[]; total: number }>(`/api/clubs/${clubId}/members${qs ? `?${qs}` : ''}`)
   },
 

@@ -8,12 +8,15 @@ import {
   TextInput,
   Alert,
   RefreshControl,
+  Modal,
+  Pressable,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { clubApi, Member } from '@/api/client'
 import { useClubStore } from '@/store/club'
+import { useAuthStore } from '@/store/auth'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 
@@ -22,6 +25,7 @@ type StatusFilter = 'ALL' | 'ACTIVE' | 'INVITED' | 'SUSPENDED'
 export default function MemberListScreen() {
   const router = useRouter()
   const { activeClubId } = useClubStore()
+  const currentUserId = useAuthStore((s) => s.user?.id)
 
   const [members, setMembers] = useState<Member[]>([])
   const [total, setTotal] = useState(0)
@@ -29,6 +33,7 @@ export default function MemberListScreen() {
   const [filter, setFilter] = useState<StatusFilter>('ACTIVE')
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [menuMember, setMenuMember] = useState<Member | null>(null)
 
   const load = useCallback(async () => {
     if (!activeClubId) return
@@ -55,9 +60,13 @@ export default function MemberListScreen() {
   }
 
   async function handleChangeRole(member: Member) {
+    if (member.role === 'ADMIN' && member.userId === currentUserId) {
+      Alert.alert('Cannot Remove Yourself', 'You cannot remove your own admin privileges.')
+      return
+    }
     const newRole = member.role === 'ADMIN' ? 'MEMBER' : 'ADMIN'
     Alert.alert(
-      `Make ${newRole === 'ADMIN' ? 'Admin' : 'Member'}?`,
+      newRole === 'ADMIN' ? 'Make Admin?' : 'Remove Admin?',
       `${member.user.name} will ${newRole === 'ADMIN' ? 'gain admin privileges' : 'lose admin privileges'}.`,
       [
         { text: 'Cancel', style: 'cancel' },
@@ -140,6 +149,36 @@ export default function MemberListScreen() {
         ))}
       </View>
 
+      <Modal
+        visible={menuMember !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuMember(null)}
+      >
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuMember(null)}>
+          <Pressable style={styles.menuSheet}>
+            <Text style={styles.menuTitle} numberOfLines={1}>{menuMember?.user.name}</Text>
+            {menuMember && menuMember.role !== 'ADMIN' && (
+              <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuMember(null); handleChangeRole(menuMember) }}>
+                <Ionicons name="shield-checkmark-outline" size={20} color="#374151" />
+                <Text style={styles.menuItemText}>Make Admin</Text>
+              </TouchableOpacity>
+            )}
+            {menuMember && menuMember.role === 'ADMIN' && menuMember.userId !== currentUserId && (
+              <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuMember(null); handleChangeRole(menuMember) }}>
+                <Ionicons name="shield-outline" size={20} color="#374151" />
+                <Text style={styles.menuItemText}>Remove Admin</Text>
+              </TouchableOpacity>
+            )}
+            <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setMenuMember(null); handleRemove(menuMember!) }}>
+              <Ionicons name="person-remove-outline" size={20} color="#ef4444" />
+              <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Remove from Club</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <FlatList
         data={members}
         keyExtractor={(m) => m.id}
@@ -156,19 +195,7 @@ export default function MemberListScreen() {
               <Text style={styles.memberPhone}>{item.user.phone}</Text>
               {item.house && <Text style={styles.memberHouse}>🏠 {item.house.name}</Text>}
             </View>
-            <TouchableOpacity
-              style={styles.moreBtn}
-              onPress={() =>
-                Alert.alert(item.user.name, undefined, [
-                  {
-                    text: item.role === 'ADMIN' ? 'Make Member' : 'Make Admin',
-                    onPress: () => handleChangeRole(item),
-                  },
-                  { text: 'Remove from Club', style: 'destructive', onPress: () => handleRemove(item) },
-                  { text: 'Cancel', style: 'cancel' },
-                ])
-              }
-            >
+            <TouchableOpacity style={styles.moreBtn} onPress={() => setMenuMember(item)}>
               <Ionicons name="ellipsis-horizontal" size={18} color="#9ca3af" />
             </TouchableOpacity>
           </View>
@@ -255,4 +282,17 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   importText: { fontSize: 14, color: '#1a56db', fontWeight: '500' },
+  menuBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  menuSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 32,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  menuTitle: { fontSize: 13, fontWeight: '600', color: '#9ca3af', marginBottom: 12, textAlign: 'center' },
+  menuDivider: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 4 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 },
+  menuItemText: { fontSize: 16, color: '#111827' },
 })

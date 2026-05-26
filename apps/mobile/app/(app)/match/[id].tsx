@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Modal,
+  Pressable,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -51,6 +53,7 @@ export default function MatchDetailScreen() {
   const [feeLoading, setFeeLoading] = useState(false)
   const [completeLoading, setCompleteLoading] = useState(false)
   const [tab, setTab] = useState<Tab>('confirmed')
+  const [showMenu, setShowMenu] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -205,20 +208,37 @@ export default function MatchDetailScreen() {
         </TouchableOpacity>
         <Text style={styles.navTitle} numberOfLines={1}>{match.title}</Text>
         {isAdmin && !isClosed && match.status !== 'CANCELLED' && (
-          <TouchableOpacity
-            onPress={() =>
-              Alert.alert(match.title, undefined, [
-                { text: 'Edit Match', onPress: handleEdit },
-                { text: 'Mark Complete', onPress: handleMarkComplete },
-                { text: 'Cancel Match', style: 'destructive', onPress: handleCancelMatch },
-                { text: 'Dismiss', style: 'cancel' },
-              ])
-            }
-          >
+          <TouchableOpacity onPress={() => setShowMenu(true)}>
             <Ionicons name="ellipsis-horizontal" size={24} color="#374151" />
           </TouchableOpacity>
         )}
       </View>
+
+      <Modal
+        visible={showMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMenu(false)}
+      >
+        <Pressable style={styles.menuBackdrop} onPress={() => setShowMenu(false)}>
+          <Pressable style={styles.menuSheet}>
+            <Text style={styles.menuTitle} numberOfLines={1}>{match.title}</Text>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleEdit() }}>
+              <Ionicons name="pencil-outline" size={20} color="#374151" />
+              <Text style={styles.menuItemText}>Edit Match</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleMarkComplete() }}>
+              <Ionicons name="checkmark-circle-outline" size={20} color="#374151" />
+              <Text style={styles.menuItemText}>Mark Complete</Text>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity style={styles.menuItem} onPress={() => { setShowMenu(false); handleCancelMatch() }}>
+              <Ionicons name="close-circle-outline" size={20} color="#ef4444" />
+              <Text style={[styles.menuItemText, { color: '#ef4444' }]}>Cancel Match</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <ScrollView contentContainerStyle={styles.content}>
         {/* Status badge */}
@@ -478,4 +498,22 @@ const styles = StyleSheet.create({
   playerName: { flex: 1, fontSize: 14, color: '#111827' },
   houseDot: { width: 12, height: 12, borderRadius: 6 },
   houseTag: { fontSize: 10, fontWeight: '700', color: '#6b7280', backgroundColor: '#f3f4f6', width: 18, height: 18, borderRadius: 9, textAlign: 'center', lineHeight: 18 },
+  menuBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  menuSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 32,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  menuTitle: { fontSize: 13, fontWeight: '600', color: '#9ca3af', marginBottom: 12, textAlign: 'center' },
+  menuDivider: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 4 },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 14,
+  },
+  menuItemText: { fontSize: 16, color: '#111827' },
 })

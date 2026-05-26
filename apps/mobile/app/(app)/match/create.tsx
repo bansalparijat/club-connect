@@ -194,30 +194,38 @@ export default function CreateMatchScreen() {
             <View style={styles.teamsRow}>
               <View style={styles.teamCol}>
                 <Text style={styles.teamLabel}>Team A</Text>
-                {houses.map((h) => (
-                  <TouchableOpacity
-                    key={h.id}
-                    style={[styles.chip, teamAId === h.id && styles.chipSelected]}
-                    onPress={() => setTeamAId(teamAId === h.id ? null : h.id)}
-                  >
-                    {h.color && <View style={[styles.colorDot, { backgroundColor: h.color }]} />}
-                    <Text style={[styles.chipText, teamAId === h.id && styles.chipTextSelected]}>{h.name}</Text>
-                  </TouchableOpacity>
-                ))}
+                {houses.map((h) => {
+                  const takenByB = teamBId === h.id
+                  return (
+                    <TouchableOpacity
+                      key={h.id}
+                      style={[styles.chip, teamAId === h.id && styles.chipSelected, takenByB && styles.chipDisabled]}
+                      onPress={() => { if (!takenByB) setTeamAId(teamAId === h.id ? null : h.id) }}
+                      disabled={takenByB}
+                    >
+                      {h.color && <View style={[styles.colorDot, { backgroundColor: h.color }]} />}
+                      <Text style={[styles.chipText, teamAId === h.id && styles.chipTextSelected, takenByB && styles.chipTextDisabled]}>{h.name}</Text>
+                    </TouchableOpacity>
+                  )
+                })}
               </View>
               <Text style={styles.vsText}>vs</Text>
               <View style={styles.teamCol}>
                 <Text style={styles.teamLabel}>Team B</Text>
-                {houses.map((h) => (
-                  <TouchableOpacity
-                    key={h.id}
-                    style={[styles.chip, teamBId === h.id && styles.chipSelected]}
-                    onPress={() => setTeamBId(teamBId === h.id ? null : h.id)}
-                  >
-                    {h.color && <View style={[styles.colorDot, { backgroundColor: h.color }]} />}
-                    <Text style={[styles.chipText, teamBId === h.id && styles.chipTextSelected]}>{h.name}</Text>
-                  </TouchableOpacity>
-                ))}
+                {houses.map((h) => {
+                  const takenByA = teamAId === h.id
+                  return (
+                    <TouchableOpacity
+                      key={h.id}
+                      style={[styles.chip, teamBId === h.id && styles.chipSelected, takenByA && styles.chipDisabled]}
+                      onPress={() => { if (!takenByA) setTeamBId(teamBId === h.id ? null : h.id) }}
+                      disabled={takenByA}
+                    >
+                      {h.color && <View style={[styles.colorDot, { backgroundColor: h.color }]} />}
+                      <Text style={[styles.chipText, teamBId === h.id && styles.chipTextSelected, takenByA && styles.chipTextDisabled]}>{h.name}</Text>
+                    </TouchableOpacity>
+                  )
+                })}
               </View>
             </View>
           </View>
@@ -415,8 +423,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   chipSelected: { backgroundColor: '#1a56db', borderColor: '#1a56db' },
+  chipDisabled: { backgroundColor: '#f3f4f6', borderColor: '#e5e7eb', opacity: 0.5 },
   chipText: { fontSize: 13, color: '#374151' },
   chipTextSelected: { color: '#fff', fontWeight: '600' },
+  chipTextDisabled: { color: '#9ca3af' },
   colorDot: { width: 10, height: 10, borderRadius: 5 },
   row: { flexDirection: 'row' },
   stepper: {

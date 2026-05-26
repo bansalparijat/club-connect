@@ -28,7 +28,7 @@ function memberToDTO(m: {
 
 export const GET = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, _userId: string, clubId: string) => {
   const { searchParams } = new URL(req.url)
-  const status = searchParams.get('status') ?? 'ACTIVE'
+  const status = searchParams.get('status')
   const role = searchParams.get('role') ?? undefined
   const search = searchParams.get('search') ?? ''
   const page = Math.max(1, Number(searchParams.get('page') ?? '1'))
@@ -38,26 +38,23 @@ export const GET = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, _u
   // Get active season for house lookup
   const activeSeason = await prisma.season.findFirst({ where: { clubId, isActive: true } })
 
+  const statusFilter = status ? { status: status as 'ACTIVE' | 'INVITED' | 'SUSPENDED' | 'LEFT' } : {}
+
   const [members, total] = await Promise.all([
     prisma.clubMembership.findMany({
       where: {
         clubId,
-        status: status as 'ACTIVE' | 'INVITED' | 'SUSPENDED' | 'LEFT',
+        ...statusFilter,
         ...(role ? { role: role as 'ADMIN' | 'MEMBER' } : {}),
         user: search ? { OR: [{ name: { contains: search, mode: 'insensitive' } }, { phone: { contains: search } }] } : undefined,
       },
-      include: {
-        user: true,
-        ...(activeSeason ? {
-          user: { include: {} }
-        } : {}),
-      },
+      include: { user: true },
       skip,
       take: limit,
       orderBy: { joinedAt: 'asc' },
     }),
     prisma.clubMembership.count({
-      where: { clubId, status: status as 'ACTIVE' | 'INVITED' | 'SUSPENDED' | 'LEFT' },
+      where: { clubId, ...statusFilter },
     }),
   ])
 
