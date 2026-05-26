@@ -63,11 +63,21 @@ export default function HomeScreen() {
           <Ionicons name="chevron-down" size={14} color="#1a56db" />
         </TouchableOpacity>
 
-        {isAdmin && (
-          <TouchableOpacity onPress={() => router.push('/(app)/club/management' as never)}>
-            <Ionicons name="settings-outline" size={22} color="#374151" />
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerActions}>
+          {activeClubId && (
+            <TouchableOpacity
+              style={styles.headerIcon}
+              onPress={() => router.push('/(app)/club/profile' as never)}
+            >
+              <Ionicons name="information-circle-outline" size={24} color="#374151" />
+            </TouchableOpacity>
+          )}
+          {isAdmin && (
+            <TouchableOpacity onPress={() => router.push('/(app)/club/management' as never)}>
+              <Ionicons name="settings-outline" size={22} color="#374151" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Match list */}
@@ -152,6 +162,8 @@ const styles = StyleSheet.create({
     maxWidth: '80%',
   },
   clubName: { fontSize: 14, fontWeight: '600', color: '#1a56db' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerIcon: {},
   list: { padding: 16 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
   emptyText: { fontSize: 16, fontWeight: '600', color: '#374151', marginBottom: 4 },

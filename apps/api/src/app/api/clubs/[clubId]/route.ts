@@ -20,6 +20,10 @@ export const GET = withAuth(async (_req: NextRequest, ctx: RouteContext, userId:
         sportType: { include: { parameters: { orderBy: { displayOrder: 'asc' } } } },
         _count: { select: { memberships: { where: { status: 'ACTIVE' } } } },
         seasons: { where: { isActive: true }, take: 1 },
+        memberships: {
+          where: { role: 'ADMIN', status: 'ACTIVE' },
+          include: { user: { select: { id: true, name: true, phone: true, profilePhotoUrl: true } } },
+        },
       },
     }),
     prisma.clubMembership.findUnique({ where: { clubId_userId: { clubId, userId } } }),
@@ -34,6 +38,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx: RouteContext, userId:
     myMembership: { ...membership, joinedAt: membership.joinedAt.toISOString(), updatedAt: membership.updatedAt.toISOString() },
     activeSeason: club.seasons[0] ? { ...club.seasons[0], startDate: club.seasons[0].startDate.toISOString(), endDate: club.seasons[0].endDate?.toISOString() ?? null, createdAt: club.seasons[0].createdAt.toISOString(), updatedAt: club.seasons[0].updatedAt.toISOString() } : null,
     memberCount: club._count.memberships,
+    admins: club.memberships.map((m) => m.user),
   })
 })
 
