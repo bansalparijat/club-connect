@@ -82,7 +82,6 @@ export default function PhoneScreen() {
               onSubmitEditing={() => handleSendOtp()}
               autoComplete="tel"
               textContentType="telephoneNumber"
-              autoFocus
             />
           </View>
 
