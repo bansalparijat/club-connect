@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View,
   Text,
@@ -8,9 +8,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from 'react-native'
 import { useRouter } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { authApi } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 import { Button } from '@/components/ui/Button'
@@ -21,19 +21,27 @@ export default function PhoneScreen() {
   const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [savedPhone, setSavedPhone] = useState<string | null>(null)
+
+  useEffect(() => {
+    AsyncStorage.getItem('last_verified_phone').then((v) => {
+      if (v) setSavedPhone(v)
+    })
+  }, [])
 
   const normalized = phone.startsWith('+') ? phone : `+91${phone.replace(/\s/g, '')}`
 
-  async function handleSendOtp() {
-    if (phone.replace(/\D/g, '').length < 10) {
+  async function handleSendOtp(overridePhone?: string) {
+    const target = overridePhone ?? normalized
+    if (target.replace(/\D/g, '').length < 10) {
       setError('Enter a valid phone number')
       return
     }
     setError('')
     setLoading(true)
     try {
-      await authApi.sendOtp(normalized)
-      setPendingPhone(normalized)
+      await authApi.sendOtp(target)
+      setPendingPhone(target)
       router.push('/(auth)/otp')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to send OTP'
@@ -71,15 +79,29 @@ export default function PhoneScreen() {
               keyboardType="phone-pad"
               maxLength={14}
               returnKeyType="done"
-              onSubmitEditing={handleSendOtp}
+              onSubmitEditing={() => handleSendOtp()}
+              autoComplete="tel"
+              textContentType="telephoneNumber"
+              autoFocus
             />
           </View>
+
+          {savedPhone ? (
+            <TouchableOpacity
+              style={styles.savedPhoneRow}
+              onPress={() => handleSendOtp(savedPhone)}
+              disabled={loading}
+            >
+              <Text style={styles.savedPhoneLabel}>Continue as  </Text>
+              <Text style={styles.savedPhoneNumber}>{savedPhone}</Text>
+            </TouchableOpacity>
+          ) : null}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <Button
             title="Send OTP"
-            onPress={handleSendOtp}
+            onPress={() => handleSendOtp()}
             loading={loading}
             style={styles.button}
           />
@@ -120,6 +142,19 @@ const styles = StyleSheet.create({
     color: '#111827',
     backgroundColor: '#fff',
   },
+  savedPhoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f4ff',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#c7d7fc',
+  },
+  savedPhoneLabel: { fontSize: 14, color: '#6b7280' },
+  savedPhoneNumber: { fontSize: 14, color: '#1a56db', fontWeight: '600' },
   error: { fontSize: 13, color: '#ef4444', marginBottom: 12 },
   button: { marginTop: 8 },
 })

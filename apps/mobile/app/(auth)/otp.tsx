@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   View,
   Text,
@@ -7,8 +7,11 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  BackHandler,
+  ScrollView,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useRouter, useFocusEffect } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { authApi } from '@/api/client'
 import { useAuthStore } from '@/store/auth'
 import { useClubStore } from '@/store/club'
@@ -20,7 +23,7 @@ const RESEND_TIMEOUT = 30
 export default function OtpScreen() {
   const router = useRouter()
   const phone = useAuthStore((s) => s.pendingPhone) ?? ''
-  const { setAuth } = useAuthStore()
+  const { setAuth, setPendingPhone } = useAuthStore()
   const loadClubs = useClubStore((s) => s.loadClubs)
 
   const [otp, setOtp] = useState('')
@@ -30,13 +33,34 @@ export default function OtpScreen() {
   const [resending, setResending] = useState(false)
   const inputRef = useRef<TextInput>(null)
 
+  // Delayed focus fixes Android keyboard not appearing on hidden inputs
   useEffect(() => {
-    inputRef.current?.focus()
+    const focusTimeout = setTimeout(() => {
+      inputRef.current?.focus()
+    }, 150)
     const timer = setInterval(() => {
       setResendSeconds((s) => (s > 0 ? s - 1 : 0))
     }, 1000)
-    return () => clearInterval(timer)
+    return () => {
+      clearTimeout(focusTimeout)
+      clearInterval(timer)
+    }
   }, [])
+
+  // Handle Android hardware back button
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        handleBack()
+        return true
+      })
+      return () => sub.remove()
+    }, [])
+  )
+
+  function handleBack() {
+    router.back()
+  }
 
   async function handleVerify(code: string) {
     if (code.length < OTP_LENGTH) return
@@ -44,6 +68,7 @@ export default function OtpScreen() {
     setLoading(true)
     try {
       const data = await authApi.verifyOtp(phone, code)
+      await AsyncStorage.setItem('last_verified_phone', phone)
       await setAuth(data.user, data.accessToken, data.refreshToken)
 
       if (data.user.isStub || !data.user.name) {
@@ -86,9 +111,13 @@ export default function OtpScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={styles.container}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.back}>
-          <Text style={styles.backText}>Back</Text>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={false}
+      >
+        <TouchableOpacity onPress={handleBack} style={styles.back}>
+          <Text style={styles.backText}>{'← Back'}</Text>
         </TouchableOpacity>
 
         <View style={styles.body}>
@@ -98,7 +127,7 @@ export default function OtpScreen() {
             <Text style={styles.phone}>{phone}</Text>
           </Text>
 
-          {/* Hidden input, OTP dots shown as decoration */}
+          {/* Input positioned off-screen so Android shows keyboard, dots are the visual UI */}
           <TextInput
             ref={inputRef}
             value={otp}
@@ -107,16 +136,21 @@ export default function OtpScreen() {
             maxLength={OTP_LENGTH}
             style={styles.hiddenInput}
             caretHidden
+            showSoftInputOnFocus
           />
 
-          <View style={styles.dotsRow}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.dotsRow}
+            onPress={() => inputRef.current?.focus()}
+          >
             {Array.from({ length: OTP_LENGTH }).map((_, i) => (
-              <TouchableOpacity key={i} style={styles.dotBox} onPress={() => inputRef.current?.focus()}>
+              <View key={i} style={styles.dotBox}>
                 <Text style={styles.dotText}>{otp[i] ?? ''}</Text>
                 <View style={[styles.underline, otp.length === i && styles.underlineActive]} />
-              </TouchableOpacity>
+              </View>
             ))}
-          </View>
+          </TouchableOpacity>
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -132,20 +166,21 @@ export default function OtpScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   )
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', paddingHorizontal: 24, paddingTop: 56 },
+  container: { flexGrow: 1, backgroundColor: '#fff', paddingHorizontal: 24, paddingTop: 56 },
   back: { marginBottom: 32 },
   backText: { fontSize: 16, color: '#1a56db', fontWeight: '500' },
   body: {},
   title: { fontSize: 24, fontWeight: '700', color: '#111827', marginBottom: 8 },
   subtitle: { fontSize: 14, color: '#6b7280', marginBottom: 32, lineHeight: 22 },
   phone: { color: '#111827', fontWeight: '600' },
-  hiddenInput: { position: 'absolute', opacity: 0, width: 0, height: 0 },
+  // Off-screen but has real dimensions so Android keyboard fires correctly
+  hiddenInput: { position: 'absolute', width: 1, height: 1, top: 0, left: -1000, opacity: 0 },
   dotsRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
   dotBox: { flex: 1, alignItems: 'center', paddingBottom: 8 },
   dotText: { fontSize: 24, fontWeight: '700', color: '#111827', height: 32 },
