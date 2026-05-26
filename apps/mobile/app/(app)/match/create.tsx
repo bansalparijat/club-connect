@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import DateTimePicker from '@react-native-community/datetimepicker'
-import { matchApi, clubApi, sportTypesApi, House, SportParameter } from '@/api/client'
+import { matchApi, clubApi, sportTypesApi, House, Season, SportParameter } from '@/api/client'
 import { useClubStore } from '@/store/club'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -36,7 +36,10 @@ export default function CreateMatchScreen() {
   const [feeAmount, setFeeAmount] = useState('')
 
   const [houses, setHouses] = useState<House[]>([])
-  const [selectedHouseIds, setSelectedHouseIds] = useState<string[]>([])
+  const [teamAId, setTeamAId] = useState<string | null>(null)
+  const [teamBId, setTeamBId] = useState<string | null>(null)
+  const [seasons, setSeasons] = useState<Season[]>([])
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(null)
   const [sportParams, setSportParams] = useState<SportParameter[]>([])
   const [sportParamValues, setSportParamValues] = useState<Record<string, string>>({})
   const [customParams, setCustomParams] = useState<CustomParam[]>([])
@@ -47,6 +50,11 @@ export default function CreateMatchScreen() {
   useEffect(() => {
     if (!activeClubId) return
     clubApi.getHouses(activeClubId).then(({ houses: h }) => setHouses(h)).catch(() => {})
+    clubApi.getSeasons(activeClubId).then(({ seasons: s }) => {
+      setSeasons(s.filter(s => !s.isEnded))
+      const active = s.find(s => s.isActive && !s.isEnded)
+      if (active) setSelectedSeasonId(active.id)
+    }).catch(() => {})
     if (club?.sportTypeId) {
       sportTypesApi.list().then(({ sportTypes }) => {
         const st = sportTypes.find((s) => s.id === club.sportTypeId)
@@ -54,12 +62,6 @@ export default function CreateMatchScreen() {
       }).catch(() => {})
     }
   }, [activeClubId, club?.sportTypeId])
-
-  function toggleHouse(houseId: string) {
-    setSelectedHouseIds((prev) =>
-      prev.includes(houseId) ? prev.filter((id) => id !== houseId) : [...prev, houseId],
-    )
-  }
 
   function addCustomParam() {
     setCustomParams((prev) => [...prev, { key: '', value: '' }])
@@ -77,6 +79,8 @@ export default function CreateMatchScreen() {
     const errs: Record<string, string> = {}
     if (!title.trim()) errs.title = 'Title is required'
     if (!venue.trim()) errs.venue = 'Venue is required'
+    if (!teamAId || !teamBId) errs.houses = 'Select both Team A and Team B'
+    if (teamAId && teamBId && teamAId === teamBId) errs.houses = 'Team A and Team B must be different'
     if (hasFee && (!feeAmount || isNaN(Number(feeAmount)))) errs.fee = 'Enter a valid fee amount'
     setErrors(errs)
     if (Object.keys(errs).length > 0) return
@@ -99,7 +103,8 @@ export default function CreateMatchScreen() {
         capacity,
         waitlistSize,
         ...(hasFee && feeAmount ? { feeAmount: Number(feeAmount), feeCurrency: 'INR' } : {}),
-        houseIds: selectedHouseIds,
+        houseIds: [teamAId!, teamBId!],
+        ...(selectedSeasonId ? { seasonId: selectedSeasonId } : {}),
         parameters,
       })
       router.back()
@@ -117,6 +122,8 @@ export default function CreateMatchScreen() {
   function formatTimeDisplay(d: Date) {
     return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
   }
+
+  const activeSeason = seasons.find(s => s.isActive)
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -179,23 +186,69 @@ export default function CreateMatchScreen() {
           />
         )}
 
-        {/* Houses */}
+        {/* Houses — exactly 2 */}
         {houses.length > 0 && (
           <View style={styles.field}>
-            <Text style={styles.label}>Houses Playing</Text>
+            <Text style={styles.label}>Teams</Text>
+            {errors.houses && <Text style={styles.errorText}>{errors.houses}</Text>}
+            <View style={styles.teamsRow}>
+              <View style={styles.teamCol}>
+                <Text style={styles.teamLabel}>Team A</Text>
+                {houses.map((h) => (
+                  <TouchableOpacity
+                    key={h.id}
+                    style={[styles.chip, teamAId === h.id && styles.chipSelected]}
+                    onPress={() => setTeamAId(teamAId === h.id ? null : h.id)}
+                  >
+                    {h.color && <View style={[styles.colorDot, { backgroundColor: h.color }]} />}
+                    <Text style={[styles.chipText, teamAId === h.id && styles.chipTextSelected]}>{h.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.vsText}>vs</Text>
+              <View style={styles.teamCol}>
+                <Text style={styles.teamLabel}>Team B</Text>
+                {houses.map((h) => (
+                  <TouchableOpacity
+                    key={h.id}
+                    style={[styles.chip, teamBId === h.id && styles.chipSelected]}
+                    onPress={() => setTeamBId(teamBId === h.id ? null : h.id)}
+                  >
+                    {h.color && <View style={[styles.colorDot, { backgroundColor: h.color }]} />}
+                    <Text style={[styles.chipText, teamBId === h.id && styles.chipTextSelected]}>{h.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Season (optional) */}
+        {seasons.length > 0 && (
+          <View style={styles.field}>
+            <Text style={styles.label}>Season (optional)</Text>
             <View style={styles.chipsRow}>
-              {houses.map((h) => (
+              <TouchableOpacity
+                style={[styles.chip, selectedSeasonId === null && styles.chipSelected]}
+                onPress={() => setSelectedSeasonId(null)}
+              >
+                <Text style={[styles.chipText, selectedSeasonId === null && styles.chipTextSelected]}>None</Text>
+              </TouchableOpacity>
+              {seasons.map((s) => (
                 <TouchableOpacity
-                  key={h.id}
-                  style={[styles.chip, selectedHouseIds.includes(h.id) && styles.chipSelected]}
-                  onPress={() => toggleHouse(h.id)}
+                  key={s.id}
+                  style={[styles.chip, selectedSeasonId === s.id && styles.chipSelected]}
+                  onPress={() => setSelectedSeasonId(s.id)}
                 >
-                  <Text style={[styles.chipText, selectedHouseIds.includes(h.id) && styles.chipTextSelected]}>
-                    {h.name}
+                  <Text style={[styles.chipText, selectedSeasonId === s.id && styles.chipTextSelected]}>
+                    {s.name}{s.isActive ? ' ●' : ''}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
+            {activeSeason && selectedSeasonId === activeSeason.id && (
+              <Text style={styles.hintText}>Active season selected</Text>
+            )}
           </View>
         )}
 
@@ -330,6 +383,8 @@ const styles = StyleSheet.create({
   field: { marginBottom: 20 },
   label: { fontSize: 14, fontWeight: '500', color: '#374151', marginBottom: 8 },
   paramLabel: { fontSize: 13, color: '#374151', marginBottom: 6 },
+  errorText: { fontSize: 12, color: '#ef4444', marginBottom: 6 },
+  hintText: { fontSize: 12, color: '#6b7280', marginTop: 4 },
   pickerBtn: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -342,18 +397,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   pickerText: { fontSize: 15, color: '#111827' },
+  teamsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  teamCol: { flex: 1, gap: 8 },
+  teamLabel: { fontSize: 12, fontWeight: '600', color: '#6b7280', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+  vsText: { fontSize: 14, fontWeight: '700', color: '#9ca3af', marginTop: 28 },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingVertical: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#d1d5db',
     backgroundColor: '#fff',
+    marginBottom: 4,
   },
   chipSelected: { backgroundColor: '#1a56db', borderColor: '#1a56db' },
   chipText: { fontSize: 13, color: '#374151' },
   chipTextSelected: { color: '#fff', fontWeight: '600' },
+  colorDot: { width: 10, height: 10, borderRadius: 5 },
   row: { flexDirection: 'row' },
   stepper: {
     flexDirection: 'row',

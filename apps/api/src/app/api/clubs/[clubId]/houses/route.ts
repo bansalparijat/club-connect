@@ -7,6 +7,7 @@ import { ok, created, err } from '@/lib/response'
 const createSchema = z.object({
   name: z.string().min(1).max(50),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Color must be a hex code like #FF5733').optional(),
+  logoUrl: z.string().optional(),
 })
 
 export const GET = withAuth(async (_req: NextRequest, ctx: RouteContext, userId: string) => {

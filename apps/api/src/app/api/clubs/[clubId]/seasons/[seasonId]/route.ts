@@ -9,9 +9,10 @@ const updateSchema = z.object({
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
   isActive: z.boolean().optional(),
+  isEnded: z.boolean().optional(),
 })
 
-function seasonToDTO(s: { id: string; clubId: string; name: string; startDate: Date; endDate: Date | null; isActive: boolean; createdAt: Date; updatedAt: Date }) {
+function seasonToDTO(s: { id: string; clubId: string; name: string; startDate: Date; endDate: Date | null; isActive: boolean; isEnded: boolean; createdAt: Date; updatedAt: Date }) {
   return { ...s, startDate: s.startDate.toISOString(), endDate: s.endDate?.toISOString() ?? null, createdAt: s.createdAt.toISOString(), updatedAt: s.updatedAt.toISOString() }
 }
 
@@ -31,10 +32,16 @@ export const PATCH = withClubAdmin(async (req: NextRequest, ctx: RouteContext, _
   if (parsed.data.startDate) updateData.startDate = new Date(parsed.data.startDate)
   if (parsed.data.endDate !== undefined) updateData.endDate = parsed.data.endDate ? new Date(parsed.data.endDate) : null
 
-  if (parsed.data.isActive === true) {
-    // Deactivate all other seasons for this club
+  // Manual end: mark ended and deactivate
+  if (parsed.data.isEnded === true) {
+    updateData.isEnded = true
+    updateData.isActive = false
+  }
+
+  if (parsed.data.isActive === true && !parsed.data.isEnded) {
     await prisma.season.updateMany({ where: { clubId, id: { not: seasonId } }, data: { isActive: false } })
     updateData.isActive = true
+    updateData.isEnded = false
   } else if (parsed.data.isActive === false) {
     updateData.isActive = false
   }

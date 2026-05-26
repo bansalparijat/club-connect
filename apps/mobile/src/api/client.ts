@@ -188,12 +188,14 @@ export type Season = {
   startDate: string
   endDate: string | null
   isActive: boolean
+  isEnded: boolean
 }
 
 export type House = {
   id: string
   name: string
   color: string | null
+  logoUrl: string | null
 }
 
 export type Member = {
@@ -244,13 +246,13 @@ export const clubApi = {
   // Houses
   getHouses: (clubId: string) => apiFetch<{ houses: House[] }>(`/api/clubs/${clubId}/houses`),
 
-  createHouse: (clubId: string, data: { name: string; color?: string }) =>
+  createHouse: (clubId: string, data: { name: string; color?: string; logoUrl?: string }) =>
     apiFetch<{ house: House }>(`/api/clubs/${clubId}/houses`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  updateHouse: (clubId: string, houseId: string, data: Partial<{ name: string; color: string }>) =>
+  updateHouse: (clubId: string, houseId: string, data: Partial<{ name: string; color: string; logoUrl: string }>) =>
     apiFetch<{ house: House }>(`/api/clubs/${clubId}/houses/${houseId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -268,7 +270,7 @@ export const clubApi = {
       body: JSON.stringify(data),
     }),
 
-  updateSeason: (clubId: string, seasonId: string, data: Partial<{ name: string; startDate: string; endDate: string; isActive: boolean }>) =>
+  updateSeason: (clubId: string, seasonId: string, data: Partial<{ name: string; startDate: string; endDate: string; isActive: boolean; isEnded: boolean }>) =>
     apiFetch<{ season: Season }>(`/api/clubs/${clubId}/seasons/${seasonId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -344,6 +346,7 @@ export const matchApi = {
     feeAmount?: number
     feeCurrency?: string
     houseIds: string[]
+    seasonId?: string
     parameters: Array<{ key: string; value: string; sportParamId?: string; isCustom?: boolean }>
   }) =>
     apiFetch<{ match: MatchSummary }>(`/api/clubs/${clubId}/matches`, {

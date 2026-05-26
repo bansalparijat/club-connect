@@ -17,7 +17,8 @@ const createSchema = z.object({
   waitlistSize: z.number().int().min(0).max(100),
   feeAmount: z.number().positive().optional(),
   feeCurrency: z.string().length(3).optional(),
-  houseIds: z.array(z.string()).min(1),
+  houseIds: z.array(z.string()).length(2, 'Exactly 2 houses required'),
+  seasonId: z.string().optional(),
   parameters: z.array(z.object({
     key: z.string().min(1),
     value: z.string(),
@@ -119,11 +120,17 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, u
   const parsed = createSchema.safeParse(body)
   if (!parsed.success) return err.badRequest('Invalid request', parsed.error.flatten().fieldErrors)
 
-  const { title, date, venue, capacity, waitlistSize, feeAmount, feeCurrency, houseIds, parameters } = parsed.data
+  const { title, date, venue, capacity, waitlistSize, feeAmount, feeCurrency, houseIds, seasonId, parameters } = parsed.data
 
   // Validate houses belong to this club
   const houses = await prisma.house.findMany({ where: { id: { in: houseIds }, clubId } })
   if (houses.length !== houseIds.length) return err.badRequest('One or more house IDs are invalid')
+
+  // Validate season belongs to this club
+  if (seasonId) {
+    const season = await prisma.season.findFirst({ where: { id: seasonId, clubId } })
+    if (!season) return err.badRequest('Invalid season ID')
+  }
 
   const matchDate = new Date(date)
 
@@ -131,6 +138,7 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, u
     data: {
       clubId, title, date: matchDate, venue, capacity, waitlistSize,
       feeAmount: feeAmount ?? null, feeCurrency: feeCurrency ?? 'INR',
+      seasonId: seasonId ?? null,
       createdById: userId,
       houses: { create: houseIds.map(houseId => ({ houseId })) },
       parameters: { create: parameters.map(p => ({ key: p.key, value: p.value, sportParamId: p.sportParamId ?? null, isCustom: p.isCustom ?? false })) },

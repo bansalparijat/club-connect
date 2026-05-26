@@ -132,20 +132,23 @@ model Season {
   startDate DateTime
   endDate   DateTime?
   isActive  Boolean   @default(false)
+  isEnded   Boolean   @default(false)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
   club             Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
   houseMemberships HouseMembership[]
+  matches          Match[]
 
   @@index([clubId, isActive])
 }
 
 model House {
-  id     String  @id @default(cuid())
-  clubId String
-  name   String
-  color  String?
+  id      String  @id @default(cuid())
+  clubId  String
+  name    String
+  color   String?
+  logoUrl String?
 
   club        Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
   memberships HouseMembership[]
@@ -191,6 +194,7 @@ model SportParameter {
 model Match {
   id           String      @id @default(cuid())
   clubId       String
+  seasonId     String?
   title        String
   date         DateTime
   venue        String
@@ -204,6 +208,7 @@ model Match {
   updatedAt    DateTime    @updatedAt
 
   club         Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  season       Season?             @relation(fields: [seasonId], references: [id])
   createdBy    User                @relation("MatchCreatedBy", fields: [createdById], references: [id])
   parameters   MatchParameter[]
   availability MatchAvailability[]

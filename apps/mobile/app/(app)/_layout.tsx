@@ -44,18 +44,9 @@ export default function AppLayout() {
           tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
         }}
       />
-      {/* Hidden screens (not in tab bar) */}
-      <Tabs.Screen name="match/[id]" options={{ href: null }} />
-      <Tabs.Screen name="match/create" options={{ href: null }} />
-      <Tabs.Screen name="club/management" options={{ href: null }} />
-      <Tabs.Screen name="club/members" options={{ href: null }} />
-      <Tabs.Screen name="club/add-member" options={{ href: null }} />
-      <Tabs.Screen name="club/import" options={{ href: null }} />
-      <Tabs.Screen name="club/houses" options={{ href: null }} />
-      <Tabs.Screen name="club/seasons" options={{ href: null }} />
-      <Tabs.Screen name="club/settings" options={{ href: null }} />
-      <Tabs.Screen name="club/profile" options={{ href: null }} />
-      <Tabs.Screen name="club/create" options={{ href: null }} />
+      {/* Hidden screen groups (not in tab bar) */}
+      <Tabs.Screen name="match" options={{ href: null }} />
+      <Tabs.Screen name="club" options={{ href: null }} />
     </Tabs>
   )
 }

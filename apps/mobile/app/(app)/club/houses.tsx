@@ -32,6 +32,7 @@ export default function HouseManagementScreen() {
   const [editingHouse, setEditingHouse] = useState<House | null>(null)
   const [houseName, setHouseName] = useState('')
   const [houseColor, setHouseColor] = useState(PRESET_COLORS[0])
+  const [logoUrl, setLogoUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const [nameError, setNameError] = useState('')
 
@@ -49,6 +50,7 @@ export default function HouseManagementScreen() {
     setEditingHouse(null)
     setHouseName('')
     setHouseColor(PRESET_COLORS[0])
+    setLogoUrl('')
     setNameError('')
     setModalVisible(true)
   }
@@ -57,6 +59,7 @@ export default function HouseManagementScreen() {
     setEditingHouse(house)
     setHouseName(house.name)
     setHouseColor(house.color ?? PRESET_COLORS[0])
+    setLogoUrl(house.logoUrl ?? '')
     setNameError('')
     setModalVisible(true)
   }
@@ -65,10 +68,11 @@ export default function HouseManagementScreen() {
     if (!houseName.trim()) { setNameError('Name is required'); return }
     setSaving(true)
     try {
+      const data = { name: houseName.trim(), color: houseColor, ...(logoUrl.trim() ? { logoUrl: logoUrl.trim() } : {}) }
       if (editingHouse) {
-        await clubApi.updateHouse(activeClubId!, editingHouse.id, { name: houseName.trim(), color: houseColor })
+        await clubApi.updateHouse(activeClubId!, editingHouse.id, data)
       } else {
-        await clubApi.createHouse(activeClubId!, { name: houseName.trim(), color: houseColor })
+        await clubApi.createHouse(activeClubId!, data)
       }
       setModalVisible(false)
       await load()
@@ -143,6 +147,15 @@ export default function HouseManagementScreen() {
             onChangeText={(v) => { setHouseName(v); setNameError('') }}
             placeholder="e.g. Lions"
             error={nameError}
+          />
+
+          <Input
+            label="Logo URL (optional)"
+            value={logoUrl}
+            onChangeText={setLogoUrl}
+            placeholder="https://example.com/logo.png"
+            autoCapitalize="none"
+            keyboardType="url"
           />
 
           <Text style={styles.colorLabel}>Color</Text>

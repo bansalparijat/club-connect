@@ -10,8 +10,25 @@ const createSchema = z.object({
   endDate: z.string().datetime().optional(),
 })
 
-function seasonToDTO(s: { id: string; clubId: string; name: string; startDate: Date; endDate: Date | null; isActive: boolean; createdAt: Date; updatedAt: Date }) {
+function seasonToDTO(s: { id: string; clubId: string; name: string; startDate: Date; endDate: Date | null; isActive: boolean; isEnded: boolean; createdAt: Date; updatedAt: Date }) {
   return { ...s, startDate: s.startDate.toISOString(), endDate: s.endDate?.toISOString() ?? null, createdAt: s.createdAt.toISOString(), updatedAt: s.updatedAt.toISOString() }
+}
+
+// Auto-compute isActive based on dates and isEnded flag, update DB if changed
+async function syncSeasonStatuses(clubId: string) {
+  const now = new Date()
+  const seasons = await prisma.season.findMany({ where: { clubId } })
+
+  for (const s of seasons) {
+    const shouldBeActive =
+      !s.isEnded &&
+      s.startDate <= now &&
+      (s.endDate === null || s.endDate > now)
+
+    if (shouldBeActive !== s.isActive) {
+      await prisma.season.update({ where: { id: s.id }, data: { isActive: shouldBeActive } })
+    }
+  }
 }
 
 export const GET = withAuth(async (_req: NextRequest, ctx: RouteContext, userId: string) => {
@@ -19,6 +36,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx: RouteContext, userId:
   const membership = await prisma.clubMembership.findUnique({ where: { clubId_userId: { clubId, userId } } })
   if (!membership || membership.status !== 'ACTIVE') return err.forbidden()
 
+  await syncSeasonStatuses(clubId)
   const seasons = await prisma.season.findMany({ where: { clubId }, orderBy: { startDate: 'desc' } })
   return ok({ seasons: seasons.map(seasonToDTO) })
 })

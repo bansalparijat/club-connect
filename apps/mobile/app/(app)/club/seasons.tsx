@@ -28,7 +28,10 @@ export default function SeasonManagementScreen() {
   const [modalVisible, setModalVisible] = useState(false)
   const [seasonName, setSeasonName] = useState('')
   const [startDate, setStartDate] = useState(new Date())
+  const [endDate, setEndDate] = useState<Date | null>(null)
+  const [hasEndDate, setHasEndDate] = useState(false)
   const [showStart, setShowStart] = useState(false)
+  const [showEnd, setShowEnd] = useState(false)
   const [saving, setSaving] = useState(false)
   const [nameError, setNameError] = useState('')
 
@@ -42,11 +45,24 @@ export default function SeasonManagementScreen() {
 
   useEffect(() => { load() }, [activeClubId])
 
+  function openCreate() {
+    setSeasonName('')
+    setStartDate(new Date())
+    setEndDate(null)
+    setHasEndDate(false)
+    setNameError('')
+    setModalVisible(true)
+  }
+
   async function handleCreate() {
     if (!seasonName.trim()) { setNameError('Name is required'); return }
     setSaving(true)
     try {
-      await clubApi.createSeason(activeClubId!, { name: seasonName.trim(), startDate: startDate.toISOString() })
+      await clubApi.createSeason(activeClubId!, {
+        name: seasonName.trim(),
+        startDate: startDate.toISOString(),
+        ...(hasEndDate && endDate ? { endDate: endDate.toISOString() } : {}),
+      })
       setModalVisible(false)
       await load()
     } catch (err: unknown) {
@@ -74,8 +90,36 @@ export default function SeasonManagementScreen() {
     ])
   }
 
+  async function handleMarkEnded(season: Season) {
+    Alert.alert(
+      'End Season?',
+      `"${season.name}" will be marked as ended and deactivated.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End Season',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await clubApi.updateSeason(activeClubId!, season.id, { isEnded: true })
+              await load()
+            } catch (err: unknown) {
+              Alert.alert('Error', err instanceof Error ? err.message : 'Failed')
+            }
+          },
+        },
+      ],
+    )
+  }
+
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+  }
+
+  function getStatusBadge(season: Season) {
+    if (season.isEnded) return <Badge label="Ended" variant="red" />
+    if (season.isActive) return <Badge label="Active" variant="green" />
+    return null
   }
 
   return (
@@ -85,7 +129,7 @@ export default function SeasonManagementScreen() {
           <Ionicons name="arrow-back" size={24} color="#374151" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Seasons</Text>
-        <TouchableOpacity onPress={() => { setSeasonName(''); setStartDate(new Date()); setNameError(''); setModalVisible(true) }}>
+        <TouchableOpacity onPress={openCreate}>
           <Ionicons name="add" size={26} color="#1a56db" />
         </TouchableOpacity>
       </View>
@@ -95,21 +139,30 @@ export default function SeasonManagementScreen() {
         keyExtractor={(s) => s.id}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.seasonRow} onPress={() => handleSetActive(item)}>
+          <View style={styles.seasonRow}>
             <View style={{ flex: 1 }}>
               <View style={styles.nameRow}>
                 <Text style={styles.seasonName}>{item.name}</Text>
-                {item.isActive && <Badge label="Active" variant="green" />}
+                {getStatusBadge(item)}
               </View>
               <Text style={styles.seasonDates}>
                 {formatDate(item.startDate)}
                 {item.endDate ? ` → ${formatDate(item.endDate)}` : ' (ongoing)'}
               </Text>
             </View>
-            {!item.isActive && (
-              <Text style={styles.setActiveText}>Set Active</Text>
-            )}
-          </TouchableOpacity>
+            <View style={styles.actions}>
+              {!item.isActive && !item.isEnded && (
+                <TouchableOpacity style={styles.actionBtn} onPress={() => handleSetActive(item)}>
+                  <Text style={styles.setActiveText}>Set Active</Text>
+                </TouchableOpacity>
+              )}
+              {!item.isEnded && (
+                <TouchableOpacity style={styles.actionBtn} onPress={() => handleMarkEnded(item)}>
+                  <Ionicons name="stop-circle-outline" size={20} color="#ef4444" />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
         )}
         ListEmptyComponent={
           <Text style={styles.empty}>No seasons yet. Create one to track house memberships.</Text>
@@ -146,6 +199,42 @@ export default function SeasonManagementScreen() {
             />
           )}
 
+          <TouchableOpacity
+            style={styles.endDateToggle}
+            onPress={() => {
+              setHasEndDate(!hasEndDate)
+              if (!hasEndDate && !endDate) setEndDate(new Date(startDate.getTime() + 90 * 24 * 60 * 60 * 1000))
+            }}
+          >
+            <Ionicons
+              name={hasEndDate ? 'checkbox' : 'square-outline'}
+              size={20}
+              color={hasEndDate ? '#1a56db' : '#9ca3af'}
+            />
+            <Text style={styles.endDateToggleText}>Set end date</Text>
+          </TouchableOpacity>
+
+          {hasEndDate && endDate && (
+            <>
+              <Text style={styles.dateLabel}>End Date</Text>
+              <TouchableOpacity style={styles.dateBtn} onPress={() => setShowEnd(true)}>
+                <Text style={styles.dateBtnText}>
+                  {endDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </Text>
+                <Ionicons name="calendar-outline" size={18} color="#6b7280" />
+              </TouchableOpacity>
+              {showEnd && (
+                <DateTimePicker
+                  value={endDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  minimumDate={startDate}
+                  onChange={(_, d) => { setShowEnd(false); if (d) setEndDate(d) }}
+                />
+              )}
+            </>
+          )}
+
           <Button title="Create Season" onPress={handleCreate} loading={saving} style={{ marginTop: 16 }} />
         </View>
       </Modal>
@@ -178,6 +267,8 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   seasonName: { fontSize: 15, fontWeight: '600', color: '#111827' },
   seasonDates: { fontSize: 12, color: '#6b7280' },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  actionBtn: { padding: 4 },
   setActiveText: { fontSize: 13, color: '#1a56db', fontWeight: '500' },
   empty: { textAlign: 'center', color: '#9ca3af', fontSize: 14, paddingTop: 40, paddingHorizontal: 20 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
@@ -201,6 +292,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     backgroundColor: '#fff',
+    marginBottom: 12,
   },
   dateBtnText: { fontSize: 15, color: '#111827' },
+  endDateToggle: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  endDateToggleText: { fontSize: 14, color: '#374151' },
 })
