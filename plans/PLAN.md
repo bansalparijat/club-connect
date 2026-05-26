@@ -145,19 +145,24 @@ model Season {
   startDate DateTime
   endDate   DateTime?
   isActive  Boolean   @default(false)
+  isEnded   Boolean   @default(false)
+  // isEnded = true when manually marked ended by admin OR when endDate has passed
+  // isActive is computed lazily: startDate <= now AND !isEnded AND (endDate IS NULL OR endDate > now)
   createdAt DateTime  @default(now())
 
   club             Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
   houseMemberships HouseMembership[]
+  matches          Match[]
 
   @@index([clubId, isActive])
 }
 
 model House {
-  id     String  @id @default(cuid())
-  clubId String
-  name   String
-  color  String? // hex color, e.g. "#FF5733"
+  id      String  @id @default(cuid())
+  clubId  String
+  name    String
+  color   String? // hex color, e.g. "#FF5733"
+  logoUrl String? // optional image URL for house logo
 
   club        Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
   memberships HouseMembership[]
@@ -204,6 +209,7 @@ model SportParameter {
 model Match {
   id           String      @id @default(cuid())
   clubId       String
+  seasonId     String?     // optional: links match to a season
   title        String
   date         DateTime    // stores date + time (UTC)
   venue        String
@@ -217,15 +223,18 @@ model Match {
   updatedAt    DateTime    @updatedAt
 
   club         Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  season       Season?             @relation(fields: [seasonId], references: [id])
   createdBy    User                @relation("MatchCreatedBy", fields: [createdById], references: [id])
   parameters   MatchParameter[]
   availability MatchAvailability[]
   feePayments  MatchFeePayment[]
   captains     MatchCaptain[]
   houses       MatchHouse[]
+  // Exactly 2 MatchHouse rows per match (Team A vs Team B)
 
   @@index([clubId, date])
   @@index([clubId, status])
+  @@index([seasonId])
 }
 
 model MatchHouse {
@@ -341,11 +350,19 @@ model NotificationLog {
 | `HouseMembership @@unique([userId, seasonId])` | One house per member per season; update row to switch house |
 | `MatchAvailability.position` | Only set for WAITLISTED rows; shift positions on drop-out |
 | `MatchParameter.sportParamId` nullable | Links to predefined param or null for admin custom params |
-| `MatchFeePayment` row created on confirm | Created when user transitions to CONFIRMED; deleted if they drop |
+| `MatchFeePayment` row created on confirm | Created when user transitions to CONFIRMED; deleted if they drop or mark unavailable |
 | `UserUnavailability.clubId` nullable | Supports "unavailable globally" or "unavailable for this club only" |
 | `ClubMembership.notificationsEnabled` | Per-club WhatsApp opt-out; filtered before sends |
 | `onDelete: Cascade` | Matches/memberships clean up when club or user is deleted |
 | Soft delete not used | Hard delete with cascades; match cancellation uses `status = CANCELLED` |
+| Match requires exactly 2 houses | Always Team A vs Team B — two distinct houses from the club |
+| `Match.seasonId` nullable | Optional season link; `GET /matches?seasonId=` returns sorted desc for season view |
+| `Season.isEnded` | Manually set by admin or auto-set when endDate passes; computed lazily in `syncSeasonStatuses()` |
+| `House.logoUrl` | Optional image URL displayed alongside house color in player lists |
+| Match `CLOSED` status | Admin marks match complete; blocks all edits and availability changes |
+| Self-availability via POST only | POST handles all self-transitions correctly; PATCH is for admin/captain overrides |
+| Slot-freeing on UNAVAILABLE | Marking unavailable (or DROPPED) when holding a CONFIRMED/WAITLISTED slot frees it and triggers waitlist promotion |
+| Blocking unavailable on full match | If player has no slot AND match is fully booked (confirmed + waitlist), marking unavailable is rejected 422 |
 
 ---
 
@@ -372,25 +389,36 @@ model NotificationLog {
 - Fields: title, date, time, venue, capacity, waitlist size, optional match fee
 - Select predefined sport parameters (from SportParameter for club's sport type)
 - Add custom key-value parameters (admin-defined)
-- Specify which houses are playing (multi-select from club's houses)
+- Specify exactly 2 houses playing (Team A and Team B, must be different)
+- Optionally link to a season (non-ended seasons shown; active season pre-selected)
 - On save → WhatsApp notification sent to ALL club members (async via SQS)
 - UserUnavailability checked → auto-mark unavailable for matching members
 
-### 4. Availability Marking (Members)
-- Members see upcoming matches in their feed
-- Per match: tap Available / Unavailable
-- System logic:
-  - If confirmed count < capacity → status = CONFIRMED, create MatchFeePayment if fee exists
-  - If full but waitlist_size > 0 → status = WAITLISTED with next position
-  - If member drops out:
-    - Status → DROPPED, MatchFeePayment deleted
-    - First WAITLISTED member (position=1) → auto-confirmed
-    - All other positions shift down by 1
-    - WhatsApp WAITLIST_CONFIRMED sent immediately
-    - If match has fee: create MatchFeePayment for newly confirmed member
-- Captain (match-specific role): can update other members' availability status
+### 4. Match Editing & Lifecycle (Admin only)
+- Admin can edit: title, venue, date/time, capacity, waitlist size, fee
+- Editing blocked when match is CLOSED
+- Admin can mark match complete (status → CLOSED); no edits or availability changes allowed after
+- Admin can cancel match (status → CANCELLED); sends WhatsApp to confirmed + waitlisted
 
-### 5. Advance Unavailability
+### 5. Availability Marking (Members)
+- Members see upcoming matches in their feed
+- Per match: tap Available / Unavailable (always via POST — handles all transitions)
+- System logic:
+  - AVAILABLE:
+    - If confirmed count < capacity → status = CONFIRMED, create MatchFeePayment if fee
+    - Else if waitlisted count < waitlistSize → status = WAITLISTED with next position
+    - Else → 422 MATCH_FULL
+    - Idempotent: no-op if already CONFIRMED or WAITLISTED
+  - UNAVAILABLE:
+    - If player holds a CONFIRMED/WAITLISTED slot → frees the slot (delete fee payment, promote waitlist)
+    - If player has no slot AND match is completely full → 422 (cannot mark unavailable)
+    - Otherwise → stores as UNAVAILABLE
+  - DROPPED (explicit button in UI):
+    - Frees the slot (same as above), transitions to DROPPED
+    - First WAITLISTED member (position=1) auto-confirmed, positions shift down, WhatsApp sent
+- Captain (match-specific role): can update other members' availability via PATCH endpoint
+
+### 6. Advance Unavailability
 - Members can mark:
   - Specific future dates (calendar picker)
   - Recurring weekly (pick day of week + number of weeks ahead)
@@ -398,26 +426,26 @@ model NotificationLog {
 - When a match is created: system checks unavailability records and auto-marks those members as UNAVAILABLE
 - Member can still override and mark available for a specific match
 
-### 6. Match Fee
+### 7. Match Fee
 - If match has a fee:
   - Fee section shown on match detail screen
   - Member taps "Mark as Paid" (self-reporting, no processing, one-way)
   - Daily WhatsApp reminder sent to all CONFIRMED members who haven't marked paid
   - Reminders stop once marked paid or match is cancelled/closed
 
-### 7. Notifications (WhatsApp)
+### 8. Notifications (WhatsApp)
 - All sends go through abstract `NotificationService` with pluggable provider
 - MATCH_CREATED / MATCH_CANCELLED: async via SQS queue
 - WAITLIST_CONFIRMED: immediate (synchronous)
 - FEE_REMINDER / MATCH_REMINDER_24H: EventBridge cron → SQS → worker Lambda
 
-### 8. Guests
+### 9. Guests
 - Admin/Captain adds a guest to a specific match
 - System creates stub user profile (phone + name) if not found
 - Guest automatically gets ClubMembership (role: MEMBER, status: ACTIVE)
 - Guest added as CONFIRMED if capacity available, else WAITLISTED
 
-### 9. Multi-club
+### 10. Multi-club
 - Users see a club switcher on home screen
 - Each club context is independent (roles, houses, matches)
 
@@ -518,9 +546,11 @@ GET /api/clubs/:id/members                  [withClubAdmin]
   Response: { members: Array<ClubMembership & { user: User, house: House | null }>, total: number }
 
 POST /api/clubs/:id/members                 [withClubAdmin]
-  Body:     { phone, name }
+  Body:     { phone, name, houseId?: string }
   Response: { membership: ClubMembership, user: User, isNew: boolean }
   Note:     isNew=true if stub profile was created
+            houseId (optional) assigns member to that house in the active season
+            Creates/upserts HouseMembership if houseId provided and active season exists
 
 POST /api/clubs/:id/members/import          [withClubAdmin]
   Body:     multipart/form-data: { file: CSV|XLSX }
@@ -536,8 +566,18 @@ PATCH /api/clubs/:id/members/:userId        [withClubAdmin]
   Body:     { role?: ClubRole, status?: MembershipStatus }
   Response: { membership: ClubMembership }
 
+PATCH /api/clubs/:id/members/:userId        [withClubAdmin]
+  Body:     { role?: ClubRole, status?: MembershipStatus }
+  Response: { membership: ClubMembership }
+
 DELETE /api/clubs/:id/members/:userId       [withClubAdmin]
   Response: 204 No Content
+
+POST /api/clubs/:id/members/bulk-houses     [withClubAdmin]
+  Body:     { seasonId: string, assignments: Array<{ userId: string, houseId: string }> }
+  Response: { updated: number }
+  Note:     Upserts HouseMembership for each assignment in bulk
+            Validates seasonId belongs to club; validates each houseId and userId
 ```
 
 ### Houses & Seasons
@@ -547,11 +587,11 @@ GET  /api/clubs/:id/houses
   Response: { houses: House[] }
 
 POST /api/clubs/:id/houses                  [withClubAdmin]
-  Body:     { name, color? }
+  Body:     { name, color?, logoUrl? }
   Response: { house: House }
 
 PATCH /api/clubs/:id/houses/:houseId        [withClubAdmin]
-  Body:     Partial<{ name, color }>
+  Body:     Partial<{ name, color, logoUrl }>
   Response: { house: House }
 
 DELETE /api/clubs/:id/houses/:houseId       [withClubAdmin]
@@ -566,8 +606,9 @@ POST /api/clubs/:id/seasons                 [withClubAdmin]
   Response: { season: Season }
 
 PATCH /api/clubs/:id/seasons/:seasonId      [withClubAdmin]
-  Body:     Partial<{ name, startDate, endDate, isActive }>
-  Note:     Setting isActive=true deactivates all other seasons for this club
+  Body:     Partial<{ name, startDate, endDate, isActive, isEnded }>
+  Note:     Setting isEnded=true permanently marks season as ended
+            isActive is computed lazily via syncSeasonStatuses() on GET; not directly settable
   Response: { season: Season }
 
 POST /api/clubs/:id/seasons/:seasonId/house-memberships   [withClubAdmin]
@@ -587,7 +628,9 @@ GET /api/sport-types
 
 ```
 GET /api/clubs/:id/matches
-  Query:    ?status=OPEN&from=ISO&to=ISO&page=1&limit=20
+  Query:    ?status=OPEN&from=ISO&to=ISO&seasonId=&page=1&limit=20
+  Note:     ?seasonId= filters to that season, sorted date DESC (for season match list view)
+            Normal feed (no seasonId) sorts date ASC, skips past matches
   Response: { matches: Array<MatchSummary>, total: number }
   MatchSummary: { id, title, date, venue, status, capacity, confirmedCount,
                   waitlistedCount, myStatus: AvailabilityStatus | null,
@@ -602,7 +645,8 @@ POST /api/clubs/:id/matches                 [withClubAdmin]
     waitlistSize: number
     feeAmount?: number
     feeCurrency?: string  // default "INR"
-    houseIds: string[]
+    houseIds: [string, string]  // exactly 2, must be distinct, must belong to club
+    seasonId?: string           // optional link to a season
     parameters: Array<{ key: string, value: string, sportParamId?: string, isCustom?: boolean }>
   }
   Response: { match: Match }
@@ -612,16 +656,25 @@ POST /api/clubs/:id/matches                 [withClubAdmin]
 
 GET /api/matches/:id                        [withMatchAccess]
   Response: {
-    match: Match, parameters: MatchParameter[], houses: House[],
-    availability: { confirmed, waitlisted, unavailable, dropped },
+    match: Match & { seasonId: string | null },
+    parameters: MatchParameter[],
+    houses: House[],
+    availability: {
+      confirmed: Array<{ user: User, respondedAt, house: { id, name, color, logoUrl } | null, hasPaid: boolean }>,
+      waitlisted: Array<{ user: User, position, respondedAt, house: { id, name, color, logoUrl } | null, hasPaid: boolean }>,
+      unavailable: Array<{ user: User }>,
+      dropped: Array<{ user: User }>
+    },
     myStatus: AvailabilityStatus | null,
     fee: { amount, currency, myMarkedPaid } | null,
     captains: User[]
   }
+  Note: house per player resolved via HouseMembership for match's seasonId
 
 PATCH /api/matches/:id                      [withClubAdmin]
-  Body:     Partial<{ title, venue, capacity, waitlistSize, feeAmount, status }>
-  Errors:   422 if reducing capacity below current confirmed count
+  Body:     Partial<{ title, venue, date: ISO8601, capacity, waitlistSize, feeAmount, status }>
+  Errors:   422 if match is CLOSED
+            422 if reducing capacity below current confirmed count
   Response: { match: Match }
 
 DELETE /api/matches/:id                     [withClubAdmin]
@@ -632,20 +685,34 @@ DELETE /api/matches/:id                     [withClubAdmin]
 ### Availability Endpoints
 
 ```
-POST /api/matches/:id/availability          [withMatchAccess]
+POST /api/matches/:id/availability          [withMatchAccess — self only]
   Body:     { status: "AVAILABLE" | "UNAVAILABLE" }
+  Note:     Use POST for ALL self-availability changes (handles all status transitions correctly)
   Logic:
     AVAILABLE ->
-      confirmed count < capacity  -> CONFIRMED, create MatchFeePayment if fee
+      Already CONFIRMED/WAITLISTED -> no-op (idempotent)
+      confirmed count < capacity   -> CONFIRMED, create MatchFeePayment if fee
       waitlisted count < waitlistSize -> WAITLISTED with next position
       else -> 422 MATCH_FULL
-    UNAVAILABLE -> store as UNAVAILABLE
+    UNAVAILABLE ->
+      If held CONFIRMED/WAITLISTED slot:
+        -> releaseSlot() (delete fee payment, promote next waitlisted if was CONFIRMED, shift positions)
+        -> status = UNAVAILABLE
+      If no slot AND match fully booked (confirmed >= capacity AND waitlisted >= waitlistSize):
+        -> 422 (cannot mark unavailable when match is full)
+      else -> store/update as UNAVAILABLE
   Response: { availability: MatchAvailability }
 
-PATCH /api/matches/:id/availability         [withMatchAccess — self only, or Captain/Admin]
+PATCH /api/matches/:id/availability         [withMatchAccess — self for DROPPED, Captain/Admin for others]
   Body:     { status: "DROPPED" | "UNAVAILABLE" | "CONFIRMED" }
   Query:    ?userId= (for captain/admin updating others)
-  Note:     DROPPED triggers waitlist auto-confirm + immediate WhatsApp
+  Logic:
+    DROPPED/UNAVAILABLE ->
+      If held CONFIRMED/WAITLISTED slot -> releaseSlot() (promotes waitlist, sends WhatsApp)
+      else -> update status directly
+    CONFIRMED (admin only) ->
+      Manually confirm a player; shifts waitlist positions if they were WAITLISTED
+      Creates MatchFeePayment if match has fee
   Response: { availability: MatchAvailability, newlyConfirmed: User | null }
 ```
 
@@ -856,27 +923,35 @@ WHERE ma.status = 'CONFIRMED' AND m.status = 'OPEN'
 ```
 RootNavigator (Stack)
 ├── AuthStack
-│   ├── PhoneEntryScreen
-│   ├── OTPVerifyScreen
-│   └── ProfileSetupScreen       <- shown for stub users on first login
+│   ├── PhoneEntryScreen              (/(auth)/phone)
+│   ├── OTPVerifyScreen               (/(auth)/otp)
+│   └── ProfileSetupScreen            (/(auth)/profile) <- stub users on first login
 │
-└── AppStack
-    ├── BottomTabNavigator
-    │   ├── Tab: Home             <- match feed for current club
-    │   ├── Tab: Availability     <- my schedule + advance unavailability
-    │   └── Tab: Profile          <- account + settings
-    │
-    ├── MatchDetailScreen
-    ├── CreateMatchScreen         <- admin FAB
-    └── ClubManagementStack       <- gear icon in header (admin only)
-        ├── ClubManagementHome
-        ├── MemberListScreen
-        ├── AddMemberScreen
-        ├── BulkImportScreen
-        ├── HouseManagementScreen
-        ├── SeasonManagementScreen
-        └── ClubSettingsScreen
+└── AppStack (BottomTabNavigator)
+    ├── Tab: Home                     (/(app)/) <- match feed for current club
+    ├── Tab: Availability             (/(app)/availability)
+    ├── Tab: Profile                  (/(app)/my-profile)
+    ├── Stack Group: club/            (/(app)/club/) <- href: null, hidden from tab bar
+    │   ├── management                <- ClubManagementHome
+    │   ├── members                   <- MemberListScreen
+    │   ├── add-member
+    │   ├── import                    <- BulkImportScreen
+    │   ├── houses
+    │   ├── seasons
+    │   ├── season-matches            <- matches for a specific season (sorted desc)
+    │   ├── bulk-houses               <- bulk assign members to houses
+    │   ├── settings
+    │   ├── profile                   <- club profile view
+    │   └── create                    <- create new club
+    └── Stack Group: match/           (/(app)/match/) <- href: null, hidden from tab bar
+        ├── [id]                      <- match detail
+        ├── create                    <- create match (admin)
+        └── edit                      <- edit match details (admin)
 ```
+
+Note: `app/(app)/club/_layout.tsx` and `app/(app)/match/_layout.tsx` are Stack navigators,
+registered in the parent tabs `_layout.tsx` with `href: null` so they don't appear in the tab bar.
+Back navigation within each Stack group works correctly (goes back within the stack, not to home).
 
 ### Auth Flow
 
@@ -907,21 +982,23 @@ ClubSwitcherSheet (bottom sheet):
 
 ```
 MatchDetailScreen
-  Header: title + status chip
-  Info: date/time, venue, houses
+  Header: title + status chip (OPEN / CLOSED="Completed" / CANCELLED)
+  Admin header menu (•••): Edit Match | Mark Complete | Cancel Match
+  Admin quick actions bar (if OPEN): [Edit] [Mark Complete] buttons
+  Info: date/time, venue, houses (Team A vs Team B)
   Parameters (collapsible): key-value chips
   My Availability card:
-    [Mark Available] [Mark Unavailable] toggles
+    [Mark Available] [Mark Unavailable] toggles (POST-based)
     If CONFIRMED: "You're confirmed"
     If WAITLISTED: "You're #N on the waitlist"
-    If CONFIRMED/WAITLISTED: "Drop Out" (confirmation dialog)
+    If CONFIRMED/WAITLISTED: "Drop Out" button (confirmation dialog, uses PATCH DROPPED)
     Disabled if match CLOSED/CANCELLED
   Fee card (if match has fee):
     Amount shown, [Mark as Paid] button -> read-only [Paid] after marking
-  Players section (tabs): Confirmed | Waitlisted | Unavailable
-    Confirmed: name + house + captain badge
-    Waitlisted: name + position number
-  Admin/Captain floating menu: Add Guest | Assign Captain | Cancel Match
+  Players section (tabs): Confirmed (N) | Waitlisted (N) | Unavailable (N)
+    Confirmed: avatar + name + HouseDot (colored dot/initial) + captain badge + fee icon (✓ paid / ○ unpaid)
+    Waitlisted: avatar + name + position number + HouseDot + fee icon
+    Unavailable: name only
 ```
 
 ### Create Match Screen (Admin)
@@ -929,12 +1006,23 @@ MatchDetailScreen
 ```
 CreateMatchScreen
   Title, Date (picker), Time (picker), Venue
-  Houses playing (multi-select chips)
+  Team A / Team B two-column selector (must pick 2 distinct houses)
+  Season chip selector (non-ended seasons; active season pre-selected)
   Capacity + Waitlist size (steppers)
   Sport parameters (predefined dropdowns)
   Custom parameters (key-value rows, + Add button)
   Match fee toggle -> amount input + currency selector
   "Create Match" -> POST /api/clubs/:id/matches
+```
+
+### Edit Match Screen (Admin)
+
+```
+EditMatchScreen (/(app)/match/edit)
+  Receives match data via router params
+  Editable: title, venue, date (picker), time (picker), capacity, waitlist size, fee toggle + amount
+  Save -> PATCH /api/matches/:id
+  Blocked (no-op): if match is CLOSED
 ```
 
 ### Availability Tab
@@ -961,19 +1049,41 @@ MyProfileScreen
 ```
 ClubManagementHome -> Members | Houses | Seasons | Club Settings
 
-MemberListScreen: search, filter (All/Admins/Invited/Suspended)
-  Tap member -> MemberDetailSheet: change role, assign house, suspend/remove
+MemberListScreen: search, filter (ACTIVE/ALL/INVITED/SUSPENDED)
+  Tap member (•••) -> Alert: Change Role | Remove from Club
+  Footer: [Bulk Import Members] [Assign Houses in Bulk]
 
-AddMemberScreen: phone + name form
+AddMemberScreen:
+  Phone + name inputs
+  Optional preferred house chip selector (None + each house with color dot)
+  -> POST /api/clubs/:id/members (with optional houseId)
 
 BulkImportScreen:
   Download template (CSV/Excel)
   File picker -> preview 5 rows -> Import
   Result: X imported, Y existing, Z errors (with row details)
 
-HouseManagementScreen: color swatch + name list, tap to edit, swipe to delete
+HouseManagementScreen:
+  Color swatch + name list; tap to edit (name, color, logoUrl), swipe to delete
 
-SeasonManagementScreen: list with active badge, HouseAssignmentScreen per season
+SeasonManagementScreen:
+  List of seasons with Active (green) / Ended (red) badges
+  Create form: name, start date, optional end date
+  Per season: tap to view matches (-> SeasonMatchesScreen) | "Mark Ended" button
+  -> PATCH /api/clubs/:id/seasons/:id { isEnded: true }
+
+SeasonMatchesScreen (/(app)/club/season-matches):
+  Receives { seasonId, seasonName } params
+  Shows match cards sorted latest first
+  Each card: status badge, date, venue, houses, confirmed count, my-status badge
+  Taps through to match detail
+
+BulkHousesScreen (/(app)/club/bulk-houses):
+  Loads members (active, limit 200), houses, seasons
+  Warning banner if no active season
+  House color legend at top
+  Per member: avatar + name + round house-initial chips (tap to assign/clear)
+  Save -> POST /api/clubs/:id/members/bulk-houses { seasonId, assignments }
 
 ClubSettingsScreen: name, description, logo
 ```
@@ -984,12 +1094,18 @@ ClubSettingsScreen: name, description, logo
 |---|---|
 | Club context | Club name pill in header; tap to switch |
 | Admin entry | Gear icon in Home header (admin only) |
-| Quick availability | Togglable on match card AND in detail |
+| Quick availability | Togglable on match card AND in detail (POST-based) |
 | Drop-out confirmation | Dialog: next waitlisted player will be notified |
 | Fee marking | One-tap, no undo |
 | Waitlist position | Shown prominently: "#3 on waitlist" |
 | Stub first login | ProfileSetupScreen between OTP and Home |
 | Captain label | "C" badge next to name in player lists |
+| House display per player | Colored dot (HouseDot component) + house initial, resolved from HouseMembership |
+| Fee payment display per player | Green checkmark (paid) or gray circle (unpaid) icon in player list |
+| Match complete | Admin taps "Mark Complete" → CLOSED; shown as "Completed" badge; all actions disabled |
+| Season matches view | Tap season → SeasonMatchesScreen sorted desc; shows all statuses including cancelled |
+| Team selection | Two-column Team A / Team B selector; validation prevents same house on both sides |
+| Bulk house assignment | Round house-initial chips per member row; tap to select/deselect |
 
 ---
 
@@ -1339,3 +1455,25 @@ On tag vX.Y.Z:  Docker build -> ECR (prod) -> terragrunt apply (prod) -> prisma 
 ### last_verified_phone (AsyncStorage)
 - After a successful OTP verification, the phone number is saved to AsyncStorage under key `last_verified_phone`.
 - The phone entry screen reads this on mount and shows it as a "Continue as …" tappable suggestion chip.
+
+### Expo Router Back Navigation (Nested Stack Groups)
+- **Problem**: All club/match screens were flat siblings of the tab screens. Pressing back from any sub-screen went to Home instead of the previous screen.
+- **Fix**: Created `app/(app)/club/_layout.tsx` and `app/(app)/match/_layout.tsx` as `<Stack>` navigators. These directories become Stack groups in Expo Router, giving proper back navigation within each group.
+- In the parent tabs `_layout.tsx`, register them as `<Tabs.Screen name="club" options={{ href: null }} />` and `<Tabs.Screen name="match" options={{ href: null }} />` — replacing the 10+ individual `href: null` screens that were there before.
+
+### Season Status (Lazy syncSeasonStatuses)
+- `Season.isActive` is computed lazily via `syncSeasonStatuses(clubId)` called on every `GET /clubs/:id/seasons`.
+- Logic: a season is active if `startDate <= now AND !isEnded AND (endDate IS NULL OR endDate > now)`.
+- This avoids needing a cron job for season status. Admin can also manually mark ended via `PATCH /seasons/:id { isEnded: true }`.
+
+### Prisma Client Regeneration (Monorepo)
+- After adding fields to the Prisma schema and running `prisma migrate dev`, you must regenerate the client from the correct directory: `cd packages/db && npx prisma generate`.
+- Running `npx prisma generate` at the repo root picks up a different Prisma version (v7) incompatible with Node 20.16 and fails silently or with version errors.
+
+### Slot-Freeing Logic (releaseSlot helper)
+- Three availability transitions all need slot-freeing: POST UNAVAILABLE (self), PATCH UNAVAILABLE (admin), PATCH DROPPED (self or admin).
+- Extracted into `releaseSlot(matchId, existingAvail, targetStatus)`:
+  1. Deletes MatchFeePayment for this user
+  2. Updates MatchAvailability status to targetStatus, clears position
+  3. If was CONFIRMED: calls `promoteNextWaitlisted()` (promotes position-1, shifts others, sends WhatsApp)
+  4. If was WAITLISTED: shifts positions > existingAvail.position down by 1
