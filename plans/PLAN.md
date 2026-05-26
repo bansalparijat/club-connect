@@ -1307,3 +1307,35 @@ On tag vX.Y.Z:  Docker build -> ECR (prod) -> terragrunt apply (prod) -> prisma 
 ### GitHub Push (SSH alias)
 - Remote uses SSH alias: `git@github.com-bansalparijat:bansalparijat/club-connect.git`
 - Full push command: `SECRET_SCAN_LOCAL=false git push git@github.com-bansalparijat:bansalparijat/club-connect.git main`
+
+### Android SafeAreaView
+- React Native's built-in `SafeAreaView` does **not** account for the Android status bar — headers and back buttons render behind the system UI and are invisible.
+- **Fix**: Always use `SafeAreaView` from `react-native-safe-area-context` (already a dependency) in all screens that have a visible header.
+- The home screen tab (`(app)/index.tsx`) and all sub-screens (club/*, match/*) have been updated.
+
+### Android OTP Keyboard
+- A `TextInput` with `width: 0, height: 0` or `opacity: 0` **does not** trigger the Android soft keyboard — the OS ignores focus events on zero-size views.
+- **Fix**: Position the hidden input off-screen (`position: 'absolute', width: 1, height: 1, left: -1000`) rather than making it zero-size. Also add a 150 ms `setTimeout` before calling `.focus()` to give Android time to finish layout.
+
+### Android autoFocus on first screen
+- Adding `autoFocus` to a `TextInput` inside a `KeyboardAvoidingView + ScrollView` on Android triggers the keyboard before the layout is measured, pushing all content off-screen and making the screen appear blank.
+- **Fix**: Do not use `autoFocus` on the phone entry screen. Let the user tap to focus.
+
+### Expo Router navigation state persistence
+- Expo Router persists the navigation stack across JS reloads (hot reload or Expo Go reload). If the user was on OTP screen at last close, it restores that route — but the Zustand store re-initialises fresh with `pendingPhone = null`.
+- **Fix**: Add a guard in `otp.tsx`: if `!phone` on mount, call `router.replace('/(auth)/phone')` immediately.
+
+### New User Profile Setup
+- The `verify-otp` route originally created new users with `name: phone` (the phone number as their name). This made the mobile check `!data.user.name` always false, bypassing the profile setup screen.
+- **Fix**: Create new users with `name: ''` (empty string). The mobile check `!data.user.name` is then `true` for new users, routing them to `ProfileSetupScreen`.
+
+### Expo Router Tab Bar — hiding screens
+- Every file inside `app/(app)/` is auto-registered as a tab screen. Sub-screens (club/create, club/profile, match/[id], etc.) must be explicitly hidden with `options={{ href: null }}` in the `_layout.tsx` Tabs config, otherwise they appear as unexpected tab bar buttons.
+
+### Club Profile & Admins API
+- `GET /api/clubs/:id` uses `withAuth` (not `withClubAdmin`), so all active club members can call it.
+- Extended to include `admins[]` in the response by adding a `memberships` include filtered by `role: 'ADMIN', status: 'ACTIVE'`. No separate endpoint needed.
+
+### last_verified_phone (AsyncStorage)
+- After a successful OTP verification, the phone number is saved to AsyncStorage under key `last_verified_phone`.
+- The phone entry screen reads this on mount and shows it as a "Continue as …" tappable suggestion chip.

@@ -42,13 +42,21 @@ club-connect/
 
 ### Mobile (Expo)
 - **Never pass `+` phone numbers as URL params** — expo-router decodes `+` as a space. Use Zustand store (`pendingPhone`) for cross-screen phone state during auth flow.
+- **Always use `SafeAreaView` from `react-native-safe-area-context`**, never from `react-native` — the built-in one ignores the Android status bar, hiding headers/back buttons.
+- **Never use `autoFocus` on the first visible screen** — on Android it fires the keyboard before layout is measured, making the screen appear blank.
+- **Hidden TextInput for OTP**: use `width: 1, height: 1, left: -1000` (off-screen), not `width: 0, height: 0` — Android won't show keyboard for zero-size inputs. Add 150 ms `setTimeout` before `.focus()`.
+- **Expo Router tab bar**: every file in `app/(app)/` auto-registers as a tab. Hide sub-screens with `options={{ href: null }}` in `_layout.tsx`.
+- **Expo Router state persistence**: navigation stack survives JS reloads. Guard screens that require prior state (e.g. OTP requires `pendingPhone`) with a redirect on mount.
 - Config file is `next.config.mjs` (not `.js`) for the API app
 - API base URL set in `app.json` under `extra.apiUrl`
+- Last verified phone saved to AsyncStorage key `last_verified_phone`; shown as suggestion on phone screen
 
 ### API (Next.js)
 - All routes validate with Zod; return 400 on validation failure before any DB call
 - Dev OTP mock: returns `true` when `NODE_ENV === development` and no `TWILIO_VERIFY_SERVICE_SID` and `otp === '123456'`
 - Standard error format: `{ error: { code, message, details } }`
+- New users created with `name: ''` (empty string) — mobile checks `!data.user.name` to route to profile setup
+- `GET /api/clubs/:id` uses `withAuth` (any active member); includes `admins[]` in response
 
 ### Git / GitHub
 - Remote alias: `git@github.com-bansalparijat:bansalparijat/club-connect.git`
