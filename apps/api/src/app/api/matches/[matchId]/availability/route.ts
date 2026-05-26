@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { withMatchAccess, isCaptainOrAdmin, type RouteContext } from '@/middleware/auth'
+import { withMatchAccess, isCaptainOrAdmin, isClubAdmin, type RouteContext } from '@/middleware/auth'
 import { ok, err } from '@/lib/response'
 import { getNotificationService } from '@/lib/notifications'
 import { buildWaitlistConfirmedParams, formatMatchDate, type TemplateName } from '@club-connect/notifications'
@@ -13,11 +13,12 @@ function availToDTO(a: { id: string; matchId: string; userId: string; status: st
   return { ...a, status: a.status, respondedAt: a.respondedAt.toISOString(), updatedAt: a.updatedAt.toISOString() }
 }
 
-async function handleDropOut(matchId: string): Promise<{ id: string; phone: string; name: string } | null> {
+// Promote the next waitlisted player to CONFIRMED after a slot opens up.
+// Returns the newly confirmed user, or null if no one was waiting.
+async function promoteNextWaitlisted(matchId: string): Promise<{ id: string; phone: string; name: string } | null> {
   const match = await prisma.match.findUnique({ where: { id: matchId } })
   if (!match) return null
 
-  // Find next waitlisted
   const nextWaitlisted = await prisma.matchAvailability.findFirst({
     where: { matchId, status: 'WAITLISTED' },
     orderBy: { position: 'asc' },
@@ -26,7 +27,6 @@ async function handleDropOut(matchId: string): Promise<{ id: string; phone: stri
 
   if (!nextWaitlisted) return null
 
-  // Confirm them
   await prisma.matchAvailability.update({
     where: { id: nextWaitlisted.id },
     data: { status: 'CONFIRMED', position: null },
@@ -51,7 +51,9 @@ async function handleDropOut(matchId: string): Promise<{ id: string; phone: stri
   // Send immediate WhatsApp notification
   const club = await prisma.club.findUnique({ where: { id: match.clubId } })
   const { date, time } = formatMatchDate(match.date)
-  const feeReminderLine = match.feeAmount ? `Remember to mark your fee payment of ${match.feeCurrency} ${match.feeAmount} in the app.` : ''
+  const feeReminderLine = match.feeAmount
+    ? `Remember to mark your fee payment of ${match.feeCurrency} ${match.feeAmount} in the app.`
+    : ''
 
   const ns = getNotificationService()
   await ns.send({
@@ -67,7 +69,35 @@ async function handleDropOut(matchId: string): Promise<{ id: string; phone: stri
   return { id: nextWaitlisted.userId, phone: nextWaitlisted.user.phone, name: nextWaitlisted.user.name }
 }
 
-export const POST = withMatchAccess(async (req: NextRequest, ctx: RouteContext, userId: string, matchId: string) => {
+// Free the slot held by a user (CONFIRMED or WAITLISTED → target status).
+// Handles waitlist promotion and fee cleanup.
+async function releaseSlot(matchId: string, existingAvail: { id: string; userId: string; status: string; position: number | null }, targetStatus: 'UNAVAILABLE' | 'DROPPED') {
+  // Clean up fee payment
+  await prisma.matchFeePayment.deleteMany({ where: { matchId, userId: existingAvail.userId } })
+
+  await prisma.matchAvailability.update({
+    where: { id: existingAvail.id },
+    data: { status: targetStatus, position: null },
+  })
+
+  if (existingAvail.status === 'CONFIRMED') {
+    // Promote next waitlisted player
+    return await promoteNextWaitlisted(matchId)
+  }
+
+  if (existingAvail.status === 'WAITLISTED' && existingAvail.position !== null) {
+    // Shift remaining waitlist positions
+    await prisma.$executeRaw`
+      UPDATE "MatchAvailability"
+      SET position = position - 1
+      WHERE "matchId" = ${matchId} AND status = 'WAITLISTED' AND position > ${existingAvail.position}
+    `
+  }
+
+  return null
+}
+
+export const POST = withMatchAccess(async (req: NextRequest, _ctx: RouteContext, userId: string, matchId: string) => {
   const match = await prisma.match.findUnique({ where: { id: matchId } })
   if (!match) return err.notFound('Match')
   if (match.status !== 'OPEN') return err.unprocessable(`Match is ${match.status.toLowerCase()} and not accepting availability changes`)
@@ -78,7 +108,23 @@ export const POST = withMatchAccess(async (req: NextRequest, ctx: RouteContext, 
   const parsed = markSchema.safeParse(body)
   if (!parsed.success) return err.badRequest('Invalid request', parsed.error.flatten().fieldErrors)
 
+  const current = await prisma.matchAvailability.findUnique({ where: { matchId_userId: { matchId, userId } } })
+
   if (parsed.data.status === 'UNAVAILABLE') {
+    // If the player holds a slot, free it before marking unavailable
+    if (current && (current.status === 'CONFIRMED' || current.status === 'WAITLISTED')) {
+      await releaseSlot(matchId, current, 'UNAVAILABLE')
+      const updated = await prisma.matchAvailability.findUnique({ where: { matchId_userId: { matchId, userId } } })
+      return ok({ availability: availToDTO(updated!) })
+    }
+
+    // Player has no slot — block if match is completely full (no open confirmed or waitlist slots)
+    const confirmedCount = await prisma.matchAvailability.count({ where: { matchId, status: 'CONFIRMED' } })
+    const waitlistedCount = await prisma.matchAvailability.count({ where: { matchId, status: 'WAITLISTED' } })
+    if (confirmedCount >= match.capacity && waitlistedCount >= match.waitlistSize) {
+      return err.unprocessable('Match is full. You cannot mark yourself unavailable.')
+    }
+
     const avail = await prisma.matchAvailability.upsert({
       where: { matchId_userId: { matchId, userId } },
       update: { status: 'UNAVAILABLE', position: null },
@@ -87,7 +133,12 @@ export const POST = withMatchAccess(async (req: NextRequest, ctx: RouteContext, 
     return ok({ availability: availToDTO(avail) })
   }
 
-  // AVAILABLE: determine confirmed or waitlisted
+  // AVAILABLE: skip if already confirmed or waitlisted
+  if (current && (current.status === 'CONFIRMED' || current.status === 'WAITLISTED')) {
+    return ok({ availability: availToDTO(current as Parameters<typeof availToDTO>[0]) })
+  }
+
+  // Determine confirmed or waitlisted
   const confirmedCount = await prisma.matchAvailability.count({ where: { matchId, status: 'CONFIRMED' } })
   const waitlistedCount = await prisma.matchAvailability.count({ where: { matchId, status: 'WAITLISTED' } })
 
@@ -121,7 +172,7 @@ export const POST = withMatchAccess(async (req: NextRequest, ctx: RouteContext, 
   return ok({ availability: availToDTO(avail) })
 })
 
-export const PATCH = withMatchAccess(async (req: NextRequest, ctx: RouteContext, userId: string, matchId: string) => {
+export const PATCH = withMatchAccess(async (req: NextRequest, _ctx: RouteContext, userId: string, matchId: string) => {
   const match = await prisma.match.findUnique({ where: { id: matchId } })
   if (!match) return err.notFound('Match')
 
@@ -143,21 +194,31 @@ export const PATCH = withMatchAccess(async (req: NextRequest, ctx: RouteContext,
   const existing = await prisma.matchAvailability.findUnique({ where: { matchId_userId: { matchId, userId: targetUserId } } })
   if (!existing) return err.notFound('Availability record')
 
-  if (parsed.data.status === 'DROPPED') {
-    // Remove fee payment if dropping out
-    await prisma.matchFeePayment.deleteMany({ where: { matchId, userId: targetUserId } })
-
-    await prisma.matchAvailability.update({
-      where: { id: existing.id },
-      data: { status: 'DROPPED', position: null },
-    })
-
-    // If was confirmed, trigger waitlist auto-confirm
+  if (parsed.data.status === 'DROPPED' || parsed.data.status === 'UNAVAILABLE') {
+    // If they held a slot, release it (triggers waitlist promotion if CONFIRMED)
     let newlyConfirmed: { id: string; phone: string; name: string } | null = null
-    if (existing.status === 'CONFIRMED') {
-      newlyConfirmed = await handleDropOut(matchId)
-    } else if (existing.status === 'WAITLISTED' && existing.position !== null) {
-      // Shift remaining waitlist positions down
+    if (existing.status === 'CONFIRMED' || existing.status === 'WAITLISTED') {
+      newlyConfirmed = await releaseSlot(matchId, existing, parsed.data.status)
+    } else {
+      // Just update status; no slot to release
+      await prisma.matchAvailability.update({
+        where: { id: existing.id },
+        data: { status: parsed.data.status, position: null },
+      })
+    }
+
+    const updated = await prisma.matchAvailability.findUnique({ where: { id: existing.id } })
+    return ok({ availability: availToDTO(updated!), newlyConfirmed })
+  }
+
+  // CONFIRMED — admin/captain manually confirms a player
+  // Find first open confirmed slot; if none, this is a capacity override by admin
+  if (parsed.data.status === 'CONFIRMED') {
+    const admin = await isClubAdmin(userId, match.clubId)
+    if (!admin) return err.forbidden('Only admins can manually confirm players')
+
+    // If currently waitlisted, clear their position and shift others
+    if (existing.status === 'WAITLISTED' && existing.position !== null) {
       await prisma.$executeRaw`
         UPDATE "MatchAvailability"
         SET position = position - 1
@@ -165,8 +226,21 @@ export const PATCH = withMatchAccess(async (req: NextRequest, ctx: RouteContext,
       `
     }
 
-    const updated = await prisma.matchAvailability.findUnique({ where: { id: existing.id } })
-    return ok({ availability: availToDTO(updated!), newlyConfirmed })
+    const updated = await prisma.matchAvailability.update({
+      where: { id: existing.id },
+      data: { status: 'CONFIRMED', position: null },
+    })
+
+    // Create fee payment if needed
+    if (match.feeAmount !== null) {
+      await prisma.matchFeePayment.upsert({
+        where: { matchId_userId: { matchId, userId: targetUserId } },
+        update: {},
+        create: { matchId, userId: targetUserId },
+      })
+    }
+
+    return ok({ availability: availToDTO(updated), newlyConfirmed: null })
   }
 
   const updated = await prisma.matchAvailability.update({

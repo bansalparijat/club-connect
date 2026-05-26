@@ -71,12 +71,11 @@ export default function MatchDetailScreen() {
     if (!detail) return
     setActionLoading(true)
     try {
-      if (detail.myStatus === null) {
-        await matchApi.markAvailability(id, status)
-      } else {
-        const newStatus = status === 'UNAVAILABLE' ? 'UNAVAILABLE' : 'DROPPED'
-        await matchApi.updateAvailability(id, { status: newStatus })
-      }
+      // Always use POST for self-availability changes.
+      // POST handles all transitions correctly:
+      //   AVAILABLE → CONFIRMED or WAITLISTED (regardless of prior status)
+      //   UNAVAILABLE → releases any held slot, then marks unavailable
+      await matchApi.markAvailability(id, status)
       await load()
     } catch (err: unknown) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to update availability')

@@ -64,8 +64,17 @@ club-connect/
 
 ## Key Domain Rules
 - `MatchAvailability.position` is only set for WAITLISTED rows (1 = next in line)
-- When a CONFIRMED player drops: promote position-1 waitlisted member, shift all positions down
+- When a CONFIRMED player drops OR is marked UNAVAILABLE: promote position-1 waitlisted member, shift all positions down, delete fee payment
+- When a WAITLISTED player drops OR is marked UNAVAILABLE: shift positions for players below them, delete fee payment
+- Self-availability changes (AVAILABLE/UNAVAILABLE) always use `POST /availability` — PATCH is for admin/captain overrides and explicit DROPPED
+- Players without a slot (UNAVAILABLE/DROPPED/null) cannot mark UNAVAILABLE when match is completely full (confirmed=capacity AND waitlist=waitlistSize)
+- `CLOSED` match status = completed, no further edits allowed (PATCH returns 422)
 - `User.isStub = true` — bulk-imported user who hasn't completed OTP activation
 - Match cancellation is a soft delete: set `status = CANCELLED`
 - Fee marking is one-way: mark paid only (no unmark via API)
 - `HouseMembership` is unique per `(userId, seasonId)` — one house per member per season
+- Preferred house when adding member: pass `houseId` → creates `HouseMembership` in the active season
+- Bulk house assignment: `POST /clubs/:id/members/bulk-houses` with `{ seasonId, assignments: [{userId, houseId}] }`
+- Match create requires exactly 2 `houseIds`; supports optional `seasonId`
+- `GET /clubs/:id/matches?seasonId=X` returns all matches for that season sorted date desc (no date floor)
+- Match detail includes `house` (color/logoUrl) and `hasPaid` per confirmed/waitlisted player

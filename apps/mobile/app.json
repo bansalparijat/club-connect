@@ -39,7 +39,7 @@
     "scheme": "clubconnect",
     "extra": {
       "eas": { "projectId": "your-eas-project-id" },
-      "apiUrl": ""
+      "apiUrl": "http://192.168.29.3:3000"
     }
   }
 }
