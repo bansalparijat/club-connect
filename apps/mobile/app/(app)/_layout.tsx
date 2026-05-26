@@ -54,6 +54,8 @@ export default function AppLayout() {
       <Tabs.Screen name="club/houses" options={{ href: null }} />
       <Tabs.Screen name="club/seasons" options={{ href: null }} />
       <Tabs.Screen name="club/settings" options={{ href: null }} />
+      <Tabs.Screen name="club/profile" options={{ href: null }} />
+      <Tabs.Screen name="club/create" options={{ href: null }} />
     </Tabs>
   )
 }
