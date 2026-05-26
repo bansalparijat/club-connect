@@ -8,6 +8,7 @@ import {
   FlatList,
   Pressable,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { useClubStore } from '@/store/club'
 import { Badge } from '@/components/ui/Badge'
@@ -19,6 +20,7 @@ type Props = {
 
 export function ClubSwitcherSheet({ visible, onClose }: Props) {
   const router = useRouter()
+  const insets = useSafeAreaInsets()
   const { clubs, activeClubId, setActiveClub } = useClubStore()
 
   function handleSelect(clubId: string) {
@@ -29,7 +31,7 @@ export function ClubSwitcherSheet({ visible, onClose }: Props) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={styles.sheet}>
+      <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
         <View style={styles.handle} />
         <Text style={styles.sheetTitle}>Switch Club</Text>
 
@@ -76,7 +78,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    paddingBottom: 40,
     maxHeight: '60%',
   },
   handle: { width: 40, height: 4, backgroundColor: '#d1d5db', borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 16 },

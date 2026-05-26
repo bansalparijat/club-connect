@@ -6,8 +6,8 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
-  SafeAreaView,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { matchApi, MatchSummary } from '@/api/client'
@@ -101,11 +101,21 @@ export default function HomeScreen() {
         />
       )}
 
-      {/* Admin FAB */}
+      {/* Create match FAB (admin) */}
       {isAdmin && activeClubId && (
         <TouchableOpacity
           style={styles.fab}
           onPress={() => router.push('/(app)/match/create' as never)}
+        >
+          <Ionicons name="add" size={28} color="#fff" />
+        </TouchableOpacity>
+      )}
+
+      {/* Create club FAB (when user has no clubs) */}
+      {!activeClubId && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/(app)/club/create' as never)}
         >
           <Ionicons name="add" size={28} color="#fff" />
         </TouchableOpacity>

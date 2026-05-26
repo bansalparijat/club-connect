@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   let user = await prisma.user.findUnique({ where: { phone } })
   if (!user) {
     user = await prisma.user.create({
-      data: { phone, name: phone, isStub: false },
+      data: { phone, name: '', isStub: false },
     })
   } else if (user.isStub) {
     // Stub user is activating — keep isStub=true until they set their name
