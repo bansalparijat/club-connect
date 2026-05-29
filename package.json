@@ -8,9 +8,6 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
-    "db:generate": "pnpm --filter @club-connect/db db:generate",
-    "db:migrate": "pnpm --filter @club-connect/db db:migrate",
-    "db:push": "pnpm --filter @club-connect/db db:push",
     "db:seed": "pnpm --filter @club-connect/db seed"
   },
   "devDependencies": {

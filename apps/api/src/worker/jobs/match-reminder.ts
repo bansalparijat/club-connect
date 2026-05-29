@@ -1,62 +1,80 @@
-import { prisma } from '@club-connect/db'
+import { db } from '@club-connect/db'
 import { getNotificationService } from '@/lib/notifications'
 import { buildMatchReminderParams, formatMatchDate, type TemplateName } from '@club-connect/notifications'
 
 export async function runMatchReminderJob(): Promise<void> {
   console.log('[match-reminder] Starting match reminder job')
 
+  // Scan for MatchAvailability items with CONFIRMED status
+  // Then filter to matches in the next 24 hours
+  const { ScanCommand } = await import('@aws-sdk/lib-dynamodb')
+  const { docClient, getTableName } = await import('@club-connect/db/src/client')
+
   const now = new Date()
   const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000)
 
-  const upcomingMatches = await prisma.matchAvailability.findMany({
-    where: {
-      status: 'CONFIRMED',
-      match: {
-        status: 'OPEN',
-        date: { gte: now, lte: in24h },
-      },
-    },
-    include: {
-      user: true,
-      match: {
-        include: {
-          club: true,
-          feePayments: true,
-        },
-      },
-    },
-  })
+  const res = await docClient.send(new ScanCommand({
+    TableName: getTableName(),
+    FilterExpression: 'entityType = :et AND #status = :status',
+    ExpressionAttributeNames: { '#status': 'status' },
+    ExpressionAttributeValues: { ':et': 'MatchAvailability', ':status': 'CONFIRMED' },
+  }))
 
-  console.log(`[match-reminder] Found ${upcomingMatches.length} confirmed players for upcoming matches`)
+  const confirmedAvails = res.Items ?? []
+  console.log(`[match-reminder] Found ${confirmedAvails.length} confirmed availability records`)
 
   const ns = getNotificationService()
   let sent = 0
 
-  for (const avail of upcomingMatches) {
-    const { date, time } = formatMatchDate(avail.match.date)
+  // Cache match/club lookups
+  const matchCache: Record<string, Awaited<ReturnType<typeof db.matches.findById>>> = {}
+  const clubCache: Record<string, Awaited<ReturnType<typeof db.clubs.findById>>> = {}
 
-    const feePayment = avail.match.feePayments.find(fp => fp.userId === avail.userId)
+  for (const avail of confirmedAvails) {
+    const matchId = avail.matchId as string
+    const userId = avail.userId as string
+
+    if (!matchCache[matchId]) {
+      matchCache[matchId] = await db.matches.findById(matchId)
+    }
+    const match = matchCache[matchId]
+    if (!match || match.status !== 'OPEN') continue
+
+    const matchDate = new Date(match.date)
+    if (matchDate < now || matchDate > in24h) continue
+
+    if (!clubCache[match.clubId]) {
+      clubCache[match.clubId] = await db.clubs.findById(match.clubId)
+    }
+    const club = clubCache[match.clubId]
+
+    const user = await db.users.findById(userId)
+    if (!user) continue
+
+    const { date, time } = formatMatchDate(matchDate)
+
     let feeStatusLine = ''
-    if (avail.match.feeAmount) {
-      const feeStr = `${avail.match.feeCurrency} ${avail.match.feeAmount}`
+    if (match.feeAmount) {
+      const feePayment = await db.feePayments.get(matchId, userId)
+      const feeStr = `${match.feeCurrency} ${match.feeAmount}`
       feeStatusLine = feePayment?.markedPaid
         ? `Fee: ${feeStr} — Paid`
         : `Fee: ${feeStr} — Not yet marked as paid`
     }
 
     const wasSent = await ns.sendWithDedup({
-      userId: avail.userId,
-      phone: avail.user.phone,
+      userId,
+      phone: user.phone,
       templateName: 'club_connect_match_reminder' as TemplateName,
       params: buildMatchReminderParams({
-        clubName: avail.match.club.name,
+        clubName: club?.name ?? 'Club',
         date,
         time,
-        venue: avail.match.venue,
+        venue: match.venue,
         feeStatusLine,
       }),
       notificationType: 'MATCH_REMINDER_24H',
-      referenceId: avail.matchId,
+      referenceId: matchId,
       referenceType: 'match',
       withinHours: 20,
     })

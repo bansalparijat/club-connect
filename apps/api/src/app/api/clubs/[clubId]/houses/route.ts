@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withClubAdmin, withAuth, type RouteContext } from '@/middleware/auth'
 import { ok, created, err } from '@/lib/response'
 
@@ -12,10 +12,10 @@ const createSchema = z.object({
 
 export const GET = withAuth(async (_req: NextRequest, ctx: RouteContext, userId: string) => {
   const { clubId } = ctx.params
-  const membership = await prisma.clubMembership.findUnique({ where: { clubId_userId: { clubId, userId } } })
+  const membership = await db.memberships.get(clubId, userId)
   if (!membership || membership.status !== 'ACTIVE') return err.forbidden()
 
-  const houses = await prisma.house.findMany({ where: { clubId }, orderBy: { name: 'asc' } })
+  const houses = await db.houses.listByClub(clubId)
   return ok({ houses })
 })
 
@@ -26,9 +26,9 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, _
   const parsed = createSchema.safeParse(body)
   if (!parsed.success) return err.badRequest('Invalid request', parsed.error.flatten().fieldErrors)
 
-  const existing = await prisma.house.findUnique({ where: { clubId_name: { clubId, name: parsed.data.name } } })
+  const existing = await db.houses.findByName(clubId, parsed.data.name)
   if (existing) return err.conflict(`House "${parsed.data.name}" already exists`)
 
-  const house = await prisma.house.create({ data: { clubId, ...parsed.data } })
+  const house = await db.houses.create({ clubId, ...parsed.data })
   return created({ house })
 })

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withClubAdmin, type RouteContext } from '@/middleware/auth'
 import { ok, err } from '@/lib/response'
 
@@ -21,30 +21,21 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, _
 
   const { seasonId, assignments } = parsed.data
 
-  // Validate season belongs to club
-  const season = await prisma.season.findFirst({ where: { id: seasonId, clubId } })
+  const season = await db.seasons.findById(clubId, seasonId)
   if (!season) return err.notFound('Season')
 
-  // Validate all houses belong to club
   const houseIds = [...new Set(assignments.map(a => a.houseId))]
-  const houses = await prisma.house.findMany({ where: { id: { in: houseIds }, clubId } })
+  const houses = await db.houses.findByIds(clubId, houseIds)
   if (houses.length !== houseIds.length) return err.badRequest('One or more house IDs are invalid')
 
-  // Validate all users are active members
   const userIds = assignments.map(a => a.userId)
-  const memberships = await prisma.clubMembership.findMany({
-    where: { clubId, userId: { in: userIds }, status: 'ACTIVE' },
-  })
-  if (memberships.length !== userIds.length) return err.badRequest('One or more users are not active members')
+  const memberChecks = await Promise.all(userIds.map(uid => db.memberships.get(clubId, uid)))
+  const activeCount = memberChecks.filter(m => m?.status === 'ACTIVE').length
+  if (activeCount !== userIds.length) return err.badRequest('One or more users are not active members')
 
-  // Upsert house memberships
   await Promise.all(
     assignments.map(({ userId, houseId }) =>
-      prisma.houseMembership.upsert({
-        where: { userId_seasonId: { userId, seasonId } },
-        create: { userId, seasonId, houseId },
-        update: { houseId },
-      })
+      db.houseMemberships.upsert({ userId, seasonId, houseId })
     )
   )
 

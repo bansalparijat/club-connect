@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withAuth, type RouteContext } from '@/middleware/auth'
 import { ok, created, err } from '@/lib/response'
 
@@ -13,29 +13,12 @@ const createSchema = z.object({
   weeksAhead: z.number().int().min(1).max(52).optional(),
 })
 
-function unavailToDTO(u: {
-  id: string; userId: string; clubId: string | null; type: string;
-  date: Date | null; dayOfWeek: number | null; startFrom: Date | null;
-  weeksAhead: number | null; createdAt: Date
-}) {
-  return {
-    id: u.id, userId: u.userId, clubId: u.clubId, type: u.type,
-    date: u.date?.toISOString() ?? null,
-    dayOfWeek: u.dayOfWeek, startFrom: u.startFrom?.toISOString() ?? null,
-    weeksAhead: u.weeksAhead, createdAt: u.createdAt.toISOString(),
-  }
-}
-
 export const GET = withAuth(async (req: NextRequest, _ctx: RouteContext, userId: string) => {
   const { searchParams } = new URL(req.url)
   const clubId = searchParams.get('clubId') ?? undefined
 
-  const rules = await prisma.userUnavailability.findMany({
-    where: { userId, ...(clubId ? { clubId } : {}) },
-    orderBy: { createdAt: 'desc' },
-  })
-
-  return ok({ rules: rules.map(unavailToDTO) })
+  const rules = await db.unavailability.listByUser(userId, clubId)
+  return ok({ rules })
 })
 
 export const POST = withAuth(async (req: NextRequest, _ctx: RouteContext, userId: string) => {
@@ -54,23 +37,18 @@ export const POST = withAuth(async (req: NextRequest, _ctx: RouteContext, userId
     return err.badRequest('dayOfWeek and startFrom are required for RECURRING_WEEKLY type')
   }
 
-  // If clubId provided, verify user is a member
   if (clubId) {
-    const membership = await prisma.clubMembership.findUnique({
-      where: { clubId_userId: { clubId, userId } },
-    })
+    const membership = await db.memberships.get(clubId, userId)
     if (!membership) return err.forbidden('Not a member of this club')
   }
 
-  const rule = await prisma.userUnavailability.create({
-    data: {
-      userId, clubId: clubId ?? null, type,
-      date: date ? new Date(date) : null,
-      dayOfWeek: dayOfWeek ?? null,
-      startFrom: startFrom ? new Date(startFrom) : null,
-      weeksAhead: weeksAhead ?? (type === 'RECURRING_WEEKLY' ? 4 : null),
-    },
+  const rule = await db.unavailability.create({
+    userId, clubId, type,
+    date: date ?? undefined,
+    dayOfWeek: dayOfWeek ?? undefined,
+    startFrom: startFrom ?? undefined,
+    weeksAhead: weeksAhead ?? (type === 'RECURRING_WEEKLY' ? 4 : undefined),
   })
 
-  return created({ rule: unavailToDTO(rule) })
+  return created({ rule })
 })

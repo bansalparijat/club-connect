@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withClubAdmin, type RouteContext } from '@/middleware/auth'
 import { ok, err } from '@/lib/response'
 
@@ -12,13 +12,9 @@ const updateSchema = z.object({
   isEnded: z.boolean().optional(),
 })
 
-function seasonToDTO(s: { id: string; clubId: string; name: string; startDate: Date; endDate: Date | null; isActive: boolean; isEnded: boolean; createdAt: Date; updatedAt: Date }) {
-  return { ...s, startDate: s.startDate.toISOString(), endDate: s.endDate?.toISOString() ?? null, createdAt: s.createdAt.toISOString(), updatedAt: s.updatedAt.toISOString() }
-}
-
 export const PATCH = withClubAdmin(async (req: NextRequest, ctx: RouteContext, _userId: string, clubId: string) => {
   const { seasonId } = ctx.params
-  const season = await prisma.season.findFirst({ where: { id: seasonId, clubId } })
+  const season = await db.seasons.findById(clubId, seasonId)
   if (!season) return err.notFound('Season')
 
   let body: unknown
@@ -29,23 +25,22 @@ export const PATCH = withClubAdmin(async (req: NextRequest, ctx: RouteContext, _
 
   const updateData: Record<string, unknown> = {}
   if (parsed.data.name) updateData.name = parsed.data.name
-  if (parsed.data.startDate) updateData.startDate = new Date(parsed.data.startDate)
-  if (parsed.data.endDate !== undefined) updateData.endDate = parsed.data.endDate ? new Date(parsed.data.endDate) : null
+  if (parsed.data.startDate) updateData.startDate = parsed.data.startDate
+  if (parsed.data.endDate !== undefined) updateData.endDate = parsed.data.endDate || null
 
-  // Manual end: mark ended and deactivate
   if (parsed.data.isEnded === true) {
     updateData.isEnded = true
     updateData.isActive = false
   }
 
   if (parsed.data.isActive === true && !parsed.data.isEnded) {
-    await prisma.season.updateMany({ where: { clubId, id: { not: seasonId } }, data: { isActive: false } })
+    await db.seasons.deactivateOthers(clubId, seasonId)
     updateData.isActive = true
     updateData.isEnded = false
   } else if (parsed.data.isActive === false) {
     updateData.isActive = false
   }
 
-  const updated = await prisma.season.update({ where: { id: seasonId }, data: updateData })
-  return ok({ season: seasonToDTO(updated) })
+  const updated = await db.seasons.update(clubId, seasonId, updateData as Parameters<typeof db.seasons.update>[2])
+  return ok({ season: updated })
 })

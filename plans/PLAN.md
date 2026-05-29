@@ -1362,7 +1362,7 @@ On tag vX.Y.Z:  Docker build -> ECR (prod) -> terragrunt apply (prod) -> prisma 
 | 6 | Fees | Fee marking, daily fee reminders via cron |
 | 7 | Advance Unavailability | Date picker, recurring weekly, auto-apply on match creation |
 | 8 | Captain & Guests | Captain role, guest add + auto-membership |
-| 9 | Infrastructure | Terraform modules, Terragrunt envs, CI/CD pipeline |
+| 9 | Infrastructure | Terraform modules, Terragrunt envs, CI/CD pipeline (see `plans/ci_cd_plan.md`) |
 | 10 | Polish | Push notifications, edge cases, performance, app store prep |
 
 ---

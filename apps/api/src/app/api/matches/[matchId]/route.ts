@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withMatchAccess, isClubAdmin, type RouteContext } from '@/middleware/auth'
 import { ok, noContent, err } from '@/lib/response'
 import { enqueueBatch } from '@/lib/sqs'
@@ -16,91 +16,96 @@ const updateSchema = z.object({
   status: z.enum(['DRAFT', 'OPEN', 'CLOSED', 'CANCELLED']).optional(),
 })
 
-function matchToDTO(m: { id: string; clubId: string; title: string; date: Date; venue: string; capacity: number; waitlistSize: number; feeAmount: unknown; feeCurrency: string | null; status: string; createdById: string; createdAt: Date; updatedAt: Date }) {
-  return { ...m, date: m.date.toISOString(), feeAmount: m.feeAmount?.toString() ?? null, createdAt: m.createdAt.toISOString(), updatedAt: m.updatedAt.toISOString() }
-}
-
 export const GET = withMatchAccess(async (_req: NextRequest, _ctx: RouteContext, userId: string, matchId: string) => {
-  const match = await prisma.match.findUnique({
-    where: { id: matchId },
-    include: {
-      parameters: true,
-      houses: { include: { house: true } },
-      captains: { include: { user: true } },
-      availability: {
-        include: { user: true },
-        orderBy: [{ position: 'asc' }, { respondedAt: 'asc' }],
-      },
-      feePayments: true,
-    },
-  })
+  const match = await db.matches.findById(matchId)
   if (!match) return err.notFound('Match')
 
-  const confirmed = match.availability.filter(a => a.status === 'CONFIRMED')
-  const waitlisted = match.availability.filter(a => a.status === 'WAITLISTED')
-  const unavailable = match.availability.filter(a => a.status === 'UNAVAILABLE')
-  const dropped = match.availability.filter(a => a.status === 'DROPPED')
+  const [params, matchHouses, allAvail, feePayments, matchCaptains] = await Promise.all([
+    db.matches.listParameters(matchId),
+    db.matches.listHouses(matchId),
+    db.availability.listByMatch(matchId),
+    db.feePayments.listByMatch(matchId),
+    db.captains.listByMatch(matchId),
+  ])
 
-  const myAvailability = match.availability.find(a => a.user.id === userId)
-  const myFeePayment = match.feePayments.find(f => f.userId === userId)
+  // Resolve house details
+  const houseDetails = []
+  for (const mh of matchHouses) {
+    const h = await db.houses.findById(match.clubId, mh.houseId)
+    if (h) houseDetails.push(h)
+  }
 
-  // Build fee payment map
+  const confirmed = allAvail.filter(a => a.status === 'CONFIRMED')
+  const waitlisted = allAvail.filter(a => a.status === 'WAITLISTED').sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+  const unavailable = allAvail.filter(a => a.status === 'UNAVAILABLE')
+  const dropped = allAvail.filter(a => a.status === 'DROPPED')
+
+  const myAvail = allAvail.find(a => a.userId === userId)
+  const myFee = feePayments.find(f => f.userId === userId)
+
   const feeMap: Record<string, boolean> = {}
-  match.feePayments.forEach(f => { feeMap[f.userId] = f.markedPaid })
+  feePayments.forEach(f => { feeMap[f.userId] = f.markedPaid })
 
-  // Fetch house assignments for players
-  const seasonId = match.seasonId
+  // Resolve house per player from HouseMembership
   let playerHouseMap: Record<string, { id: string; name: string; color: string | null; logoUrl: string | null }> = {}
-  if (seasonId) {
-    const allUserIds = match.availability.map(a => a.userId)
-    const houseMembers = await prisma.houseMembership.findMany({
-      where: { userId: { in: allUserIds }, seasonId },
-      include: { house: true },
-    })
+  if (match.seasonId) {
+    const allUserIds = allAvail.map(a => a.userId)
+    const houseMembers = await db.houseMemberships.listByUserIds(match.seasonId, allUserIds)
+    const clubHouses = await db.houses.listByClub(match.clubId)
+    const houseById: Record<string, typeof clubHouses[0]> = {}
+    clubHouses.forEach(h => { houseById[h.id] = h })
     houseMembers.forEach(hm => {
-      playerHouseMap[hm.userId] = { id: hm.house.id, name: hm.house.name, color: hm.house.color, logoUrl: hm.house.logoUrl }
+      const h = houseById[hm.houseId]
+      if (h) playerHouseMap[hm.userId] = { id: h.id, name: h.name, color: h.color, logoUrl: h.logoUrl }
     })
   }
 
-  function userToDTO(u: { id: string; phone: string; name: string; profilePhotoUrl: string | null; isStub: boolean; createdAt: Date }) {
-    return { ...u, createdAt: u.createdAt.toISOString() }
+  function userDTO(a: typeof allAvail[0]) {
+    return {
+      id: a.userId, phone: a.userPhone, name: a.userName,
+      profilePhotoUrl: a.userProfilePhotoUrl, isStub: a.userIsStub,
+      createdAt: a.userCreatedAt,
+    }
   }
+
+  // Resolve captain user details
+  const captainUsers = matchCaptains.map(c => {
+    const avail = allAvail.find(a => a.userId === c.userId)
+    return avail ? userDTO(avail) : { id: c.userId, phone: '', name: '', profilePhotoUrl: null, isStub: false, createdAt: '' }
+  })
 
   return ok({
-    match: matchToDTO(match),
-    parameters: match.parameters,
-    houses: match.houses.map(mh => mh.house),
+    match: { ...match, feeAmount: match.feeAmount?.toString() ?? null },
+    parameters: params,
+    houses: houseDetails,
     availability: {
       confirmed: confirmed.map(a => ({
-        user: userToDTO(a.user),
-        respondedAt: a.respondedAt.toISOString(),
+        user: userDTO(a), respondedAt: a.respondedAt,
         house: playerHouseMap[a.userId] ?? null,
         hasPaid: feeMap[a.userId] ?? false,
       })),
       waitlisted: waitlisted.map(a => ({
-        user: userToDTO(a.user),
-        position: a.position!,
-        respondedAt: a.respondedAt.toISOString(),
+        user: userDTO(a), position: a.position!,
+        respondedAt: a.respondedAt,
         house: playerHouseMap[a.userId] ?? null,
         hasPaid: feeMap[a.userId] ?? false,
       })),
-      unavailable: unavailable.map(a => ({ user: userToDTO(a.user), respondedAt: a.respondedAt.toISOString() })),
-      dropped: dropped.map(a => ({ user: userToDTO(a.user), respondedAt: a.respondedAt.toISOString() })),
+      unavailable: unavailable.map(a => ({ user: userDTO(a), respondedAt: a.respondedAt })),
+      dropped: dropped.map(a => ({ user: userDTO(a), respondedAt: a.respondedAt })),
     },
-    myStatus: myAvailability?.status ?? null,
+    myStatus: myAvail?.status ?? null,
     fee: match.feeAmount
-      ? { amount: match.feeAmount.toString(), currency: match.feeCurrency!, myMarkedPaid: myFeePayment?.markedPaid ?? false }
+      ? { amount: match.feeAmount.toString(), currency: match.feeCurrency!, myMarkedPaid: myFee?.markedPaid ?? false }
       : null,
-    captains: match.captains.map(c => userToDTO(c.user)),
+    captains: captainUsers,
   })
 })
 
 export const PATCH = withMatchAccess(async (req: NextRequest, _ctx: RouteContext, userId: string, matchId: string) => {
-  const match = await prisma.match.findUnique({ where: { id: matchId } })
+  const match = await db.matches.findById(matchId)
   if (!match) return err.notFound('Match')
 
   if (!(await isClubAdmin(userId, match.clubId))) return err.forbidden('Admin access required')
-
   if (match.status === 'CLOSED') return err.unprocessable('Match is closed and cannot be modified')
 
   let body: unknown
@@ -109,43 +114,33 @@ export const PATCH = withMatchAccess(async (req: NextRequest, _ctx: RouteContext
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) return err.badRequest('Invalid request', parsed.error.flatten().fieldErrors)
 
-  if (parsed.data.capacity !== undefined) {
-    const confirmedCount = await prisma.matchAvailability.count({ where: { matchId, status: 'CONFIRMED' } })
-    if (parsed.data.capacity < confirmedCount) {
-      return err.unprocessable(`Cannot reduce capacity to ${parsed.data.capacity}: ${confirmedCount} players are already confirmed`)
-    }
+  if (parsed.data.capacity !== undefined && parsed.data.capacity < match.confirmedCount) {
+    return err.unprocessable(`Cannot reduce capacity to ${parsed.data.capacity}: ${match.confirmedCount} players are already confirmed`)
   }
 
-  const updateData: Record<string, unknown> = { ...parsed.data }
-  if (parsed.data.date) updateData.date = new Date(parsed.data.date)
-
-  const updated = await prisma.match.update({ where: { id: matchId }, data: updateData })
-  return ok({ match: matchToDTO(updated) })
+  const updated = await db.matches.update(matchId, parsed.data)
+  return ok({ match: { ...updated, feeAmount: updated?.feeAmount?.toString() ?? null } })
 })
 
 export const DELETE = withMatchAccess(async (_req: NextRequest, _ctx: RouteContext, userId: string, matchId: string) => {
-  const match = await prisma.match.findUnique({ where: { id: matchId } })
+  const match = await db.matches.findById(matchId)
   if (!match) return err.notFound('Match')
 
   if (!(await isClubAdmin(userId, match.clubId))) return err.forbidden('Admin access required')
 
-  await prisma.match.update({ where: { id: matchId }, data: { status: 'CANCELLED' } })
+  await db.matches.update(matchId, { status: 'CANCELLED' })
 
-  // Notify confirmed + waitlisted
-  const affected = await prisma.matchAvailability.findMany({
-    where: { matchId, status: { in: ['CONFIRMED', 'WAITLISTED'] } },
-    include: { user: true },
-  })
+  const affected = await db.availability.listByMatch(matchId)
+  const toNotify = affected.filter(a => a.status === 'CONFIRMED' || a.status === 'WAITLISTED')
 
-  const club = await prisma.club.findUnique({ where: { id: match.clubId } })
-  const { date, time } = formatMatchDate(match.date)
+  const club = await db.clubs.findById(match.clubId)
+  const { date, time } = formatMatchDate(new Date(match.date))
 
   await enqueueBatch(
-    affected.map(a => ({
+    toNotify.map(a => ({
       type: 'MATCH_CANCELLED' as const,
       payload: {
-        userId: a.userId,
-        phone: a.user.phone,
+        userId: a.userId, phone: a.userPhone,
         templateName: 'club_connect_match_cancelled' as TemplateName,
         params: buildMatchCancelledParams({ clubName: club?.name ?? 'Club', date, time, venue: match.venue }),
       },

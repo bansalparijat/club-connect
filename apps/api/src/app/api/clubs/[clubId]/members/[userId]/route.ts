@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withClubAdmin, type RouteContext } from '@/middleware/auth'
 import { ok, noContent, err } from '@/lib/response'
 
@@ -18,37 +18,19 @@ export const PATCH = withClubAdmin(async (req: NextRequest, ctx: RouteContext, _
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) return err.badRequest('Invalid request', parsed.error.flatten().fieldErrors)
 
-  const membership = await prisma.clubMembership.findUnique({
-    where: { clubId_userId: { clubId, userId: targetUserId } },
-  })
+  const membership = await db.memberships.get(clubId, targetUserId)
   if (!membership) return err.notFound('Membership')
 
-  const updated = await prisma.clubMembership.update({
-    where: { id: membership.id },
-    data: parsed.data,
-  })
-
-  return ok({
-    membership: {
-      ...updated,
-      joinedAt: updated.joinedAt.toISOString(),
-      updatedAt: updated.updatedAt.toISOString(),
-    },
-  })
+  const updated = await db.memberships.update(clubId, targetUserId, parsed.data)
+  return ok({ membership: updated })
 })
 
 export const DELETE = withClubAdmin(async (_req: NextRequest, ctx: RouteContext, _adminId: string, clubId: string) => {
   const targetUserId = ctx.params.userId
 
-  const membership = await prisma.clubMembership.findUnique({
-    where: { clubId_userId: { clubId, userId: targetUserId } },
-  })
+  const membership = await db.memberships.get(clubId, targetUserId)
   if (!membership) return err.notFound('Membership')
 
-  await prisma.clubMembership.update({
-    where: { id: membership.id },
-    data: { status: 'LEFT' },
-  })
-
+  await db.memberships.update(clubId, targetUserId, { status: 'LEFT' })
   return noContent()
 })

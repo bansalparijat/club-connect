@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withClubAdmin, type RouteContext } from '@/middleware/auth'
 import { ok, err } from '@/lib/response'
 import { normalizePhone } from '@/lib/otp'
@@ -52,7 +52,7 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, _
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
-    const rowNum = i + 2 // 1-indexed, +1 for header
+    const rowNum = i + 2
 
     const rawPhone = String(row.phone ?? row.Phone ?? row.PHONE ?? '').trim()
     const name = String(row.name ?? row.Name ?? row.NAME ?? '').trim()
@@ -66,25 +66,28 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, _
     }
 
     try {
-      // Find or create user
-      let user = await prisma.user.findUnique({ where: { phone } })
+      let user = await db.users.findByPhone(phone)
       const isNew = !user
       if (!user) {
-        user = await prisma.user.create({ data: { phone, name, isStub: true } })
+        user = await db.users.create({ phone, name, isStub: true })
       }
 
-      // Find or create membership
-      const membership = await prisma.clubMembership.findUnique({
-        where: { clubId_userId: { clubId, userId: user.id } },
-      })
+      const membership = await db.memberships.get(clubId, user.id)
 
       if (membership) {
         if (membership.status !== 'ACTIVE') {
-          await prisma.clubMembership.update({ where: { id: membership.id }, data: { status: 'ACTIVE' } })
+          await db.memberships.update(clubId, user.id, { status: 'ACTIVE' })
         }
         existing++
       } else {
-        await prisma.clubMembership.create({ data: { clubId, userId: user.id, role: 'MEMBER', status: isNew ? 'INVITED' : 'ACTIVE' } })
+        await db.memberships.create({
+          clubId, userId: user.id, role: 'MEMBER',
+          status: isNew ? 'INVITED' : 'ACTIVE',
+          userName: user.name, userPhone: user.phone,
+          userProfilePhotoUrl: user.profilePhotoUrl,
+          userIsStub: user.isStub, userCreatedAt: user.createdAt,
+        })
+        await db.clubs.incrementMemberCount(clubId, 1)
         imported++
       }
     } catch (e) {

@@ -2,182 +2,213 @@
 
 A mobile app for sports clubs to manage match availability. Members mark availability for matches, admins create matches, and the system handles waitlists, match fees, and WhatsApp notifications automatically.
 
-## Tech Stack
+## Prerequisites
 
-| Layer | Technology |
+Install these on a clean machine before starting:
+
+| Tool | Version | Install |
+|---|---|---|
+| **Node.js** | 20+ | [nodejs.org](https://nodejs.org/) or `brew install node@20` |
+| **pnpm** | 8.15+ | `npm install -g pnpm@8.15.1` |
+| **Docker Desktop** | Any recent | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
+| **AWS CLI** | v2 | `brew install awscli` |
+
+For mobile development (optional):
+
+| Tool | Install |
 |---|---|
-| Mobile | React Native (Expo) |
-| Backend | Next.js (API routes only) |
-| Database | Supabase PostgreSQL + Prisma ORM |
-| Auth | Phone OTP via Twilio Verify + JWT |
-| WhatsApp | Meta Cloud API or Twilio (abstract provider) |
-| Queue | AWS SQS + Lambda |
-| Cron | AWS EventBridge Scheduler |
-| IaC | Terraform + Terragrunt |
-| Monorepo | Turborepo + pnpm workspaces |
+| **Expo Go** (phone) | App Store / Play Store |
+| **Xcode** (iOS simulator, Mac only) | Mac App Store |
+| **Android Studio** (Android emulator) | [developer.android.com/studio](https://developer.android.com/studio) |
+
+Verify everything is ready:
+
+```bash
+node --version    # v20.x.x or higher
+pnpm --version    # 8.15.x
+docker --version  # Docker version 2x.x.x
+aws --version     # aws-cli/2.x.x
+```
 
 ## Project Structure
 
 ```
 club-connect/
 ├── apps/
-│   ├── api/          # Next.js API server (deployed as Lambda container)
-│   └── mobile/       # React Native Expo app
+│   ├── api/           # Next.js API server (deployed as AWS Lambda)
+│   └── mobile/        # React Native Expo app
 ├── packages/
-│   ├── db/           # Prisma schema + client
-│   ├── types/        # Shared TypeScript types
+│   ├── db/            # DynamoDB client + typed repositories
+│   ├── types/         # Shared TypeScript types
 │   └── notifications/ # WhatsApp provider abstraction
-└── infrastructure/
-    ├── terraform/    # Terraform modules
-    └── terragrunt/   # Terragrunt config (staging + production)
+├── infrastructure/    # Terraform + Terragrunt (AWS infra)
+├── scripts/           # Local dev helper scripts
+└── plans/             # Architecture & deployment docs
 ```
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Mobile | React Native (Expo SDK 54) |
+| Backend | Next.js 14 (API routes only) |
+| Database | AWS DynamoDB (single-table design) |
+| Auth | Phone OTP (Twilio Verify) + JWT |
+| WhatsApp | Meta Cloud API or Twilio (abstract provider) |
+| Queue | AWS SQS + Lambda |
+| Cron | AWS EventBridge Scheduler |
+| IaC | Terraform + Terragrunt |
+| Monorepo | Turborepo + pnpm workspaces |
 
 ---
 
-## Testing the Mobile App Locally
+## Getting Started (Backend API)
 
-### Prerequisites
-
-```bash
-node --version   # >= 18
-pnpm --version   # >= 8
-```
-
-Install Expo CLI:
+### Step 1 — Clone and install
 
 ```bash
-npm install -g expo-cli
+git clone <repo-url> club-connect
+cd club-connect
+pnpm install
 ```
 
-You also need one of:
+### Step 2 — Start DynamoDB Local
 
-- **iOS**: Xcode + iOS Simulator (Mac only)
-- **Android**: Android Studio + AVD emulator
-- **Physical device**: Expo Go app from App Store / Play Store
-
----
-
-### Step 1 — Set up the local database
-
-**Option A — Docker (recommended)**
+This starts a local DynamoDB instance in Docker and creates the required table with indexes:
 
 ```bash
-docker run -d --name pg -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:15
+bash scripts/local-dynamo.sh
 ```
 
-This starts Postgres on port 5432 with username `postgres` and password `password`.
+You should see:
 
-**Option B — Supabase CLI**
-
-```bash
-npm install -g supabase
-supabase start   # starts local Postgres + Studio on http://localhost:54323
+```
+==> Starting DynamoDB Local...
+==> Creating table: club-connect-dev
+Table created
+==> DynamoDB Local ready at http://localhost:8000
 ```
 
-Note the `DB URL` and `Direct URL` from the output — you'll need them in the next step.
+> DynamoDB Local runs on port 8000. Data persists as long as the Docker container exists.
 
----
+### Step 3 — Configure environment
 
-### Step 2 — Configure the API environment
+Create the API environment file:
 
 ```bash
 cp .env.example apps/api/.env.local
 ```
 
-Edit `apps/api/.env.local`. Use the values that match your chosen database option:
-
-**If using Docker (Option A):**
+Edit `apps/api/.env.local` with these values:
 
 ```env
-DATABASE_URL="postgresql://postgres:password@127.0.0.1:5432/postgres?connection_limit=1"
-DIRECT_URL="postgresql://postgres:password@127.0.0.1:5432/postgres"
+# DynamoDB Local
+DYNAMODB_TABLE_NAME="club-connect-dev"
+DYNAMODB_ENDPOINT="http://localhost:8000"
+
+# JWT — any random strings, minimum 32 characters
+JWT_SECRET="local-dev-secret-at-least-32-characters"
+JWT_REFRESH_SECRET="local-dev-refresh-at-least-32-chars"
+
+# AWS — dummy credentials (DynamoDB Local ignores them, but the SDK requires them)
+AWS_REGION="ap-south-1"
+AWS_ACCESS_KEY_ID="local"
+AWS_SECRET_ACCESS_KEY="local"
+
+# App
+NODE_ENV="development"
 ```
 
-**If using Supabase CLI (Option B):**
+> Leave `TWILIO_VERIFY_SERVICE_SID` empty/commented — this enables mock OTP mode where `123456` works for any phone number.
+>
+> Leave `SQS_QUEUE_URL` empty/commented — WhatsApp notifications will log to console instead of being enqueued.
 
-```env
-DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres?pgbouncer=true&connection_limit=1"
-DIRECT_URL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-```
+### Step 4 — Seed the database
 
-> The password in `DATABASE_URL` must exactly match `POSTGRES_PASSWORD` from the `docker run` command. A mismatch causes `Authentication failed` errors.
-
-Add the remaining vars to the same file:
-
-```env
-# JWT — any random strings work locally
-JWT_SECRET="local-dev-secret-32-chars-minimum"
-JWT_REFRESH_SECRET="local-dev-refresh-secret-32-chars"
-
-# OTP — leave TWILIO vars empty to use the dev mock (OTP code is always "123456")
-# TWILIO_ACCOUNT_SID=
-# TWILIO_AUTH_TOKEN=
-# TWILIO_VERIFY_SERVICE_SID=
-
-# WhatsApp — leave empty locally (notifications will just log to console)
-WHATSAPP_PROVIDER="meta"
-# META_WHATSAPP_TOKEN=
-# META_PHONE_NUMBER_ID=
-
-# SQS — leave empty locally (notifications log + skip)
-# SQS_QUEUE_URL=
-```
-
----
-
-### Step 3 — Run database migrations
+Populates sport types (Cricket, Football, Badminton, etc.) with their parameters:
 
 ```bash
-pnpm install
-pnpm db:generate   # generate Prisma client
-pnpm db:migrate    # run migrations against local DB
-pnpm db:seed       # seed sport types (Cricket, Football, etc.)
+pnpm db:seed
 ```
 
----
-
-### Step 4 — Start the API server
+### Step 5 — Start the API server
 
 ```bash
 pnpm --filter @club-connect/api dev
-# API running at http://localhost:3000
 ```
 
-Verify:
+The API starts at **http://localhost:3000**. Verify:
 
 ```bash
 curl http://localhost:3000/api/health
-# {"status":"ok"}
+# {"status":"ok","db":"connected","timestamp":"..."}
+```
+
+### Step 6 — Verify the full flow
+
+```bash
+# Check sport types are seeded
+curl -s http://localhost:3000/api/sport-types | python3 -c "
+import json,sys
+print(f'{len(json.load(sys.stdin)[\"sportTypes\"])} sport types loaded')
+"
+
+# Send OTP (mock mode — no SMS sent)
+curl -s -X POST http://localhost:3000/api/auth/send-otp \
+  -H "Content-Type: application/json" \
+  -d '{"phone":"+919999900001"}'
+# {"message":"OTP sent","expiresIn":300}
+
+# Verify OTP with mock code "123456"
+curl -s -X POST http://localhost:3000/api/auth/verify-otp \
+  -H "Content-Type: application/json" \
+  -d '{"phone":"+919999900001","otp":"123456"}'
+# Returns { accessToken, refreshToken, user }
+```
+
+Use the `accessToken` from the response for authenticated requests:
+
+```bash
+TOKEN="<paste accessToken here>"
+
+# Complete profile
+curl -s -X PATCH http://localhost:3000/api/users/me \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Dev User"}'
+
+# List clubs (empty initially)
+curl -s http://localhost:3000/api/clubs \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-### Step 5 — Configure the mobile app to point to local API
+## Running the Mobile App
+
+### Step 1 — Point to the local API
 
 Edit `apps/mobile/app.json`:
 
 ```json
 "extra": {
-  "eas": { "projectId": "your-eas-project-id" },
   "apiUrl": "http://localhost:3000"
 }
 ```
 
-> **Testing on a physical device?** Use your machine's local IP instead (phone and computer must be on the same Wi-Fi):
+> **Testing on a physical device?** Your phone and computer must be on the same Wi-Fi. Use your machine's IP instead:
 >
 > ```bash
-> ipconfig getifaddr en0   # macOS — e.g. 192.168.1.42
+> # macOS
+> ipconfig getifaddr en0   # e.g. 192.168.1.42
 > ```
 >
-> Then set `"apiUrl": "http://192.168.1.42:3000"`.
+> Set `"apiUrl": "http://192.168.1.42:3000"`.
 
----
-
-### Step 6 — Start the mobile app
+### Step 2 — Start the mobile dev server
 
 ```bash
-cd apps/mobile
-pnpm dev
+pnpm --filter @club-connect/mobile dev
 ```
 
 Then:
@@ -188,11 +219,7 @@ Then:
 | Android Emulator | Press `a` in terminal |
 | Physical device | Scan the QR code with Expo Go |
 
----
-
-### Step 7 — Log in with the dev OTP
-
-Since `TWILIO_VERIFY_SERVICE_SID` is not set, the OTP is always **`123456`**:
+### Step 3 — Log in
 
 1. Enter any phone number (e.g. `+91 99999 00001`)
 2. Tap **Send OTP**
@@ -201,29 +228,28 @@ Since `TWILIO_VERIFY_SERVICE_SID` is not set, the OTP is always **`123456`**:
 
 ---
 
-### Troubleshooting
-
-**`Authentication failed` on `pnpm db:migrate`** — The password in `DATABASE_URL` doesn't match what the Docker container was started with. Recreate the container with a known password and update `.env.local` to match:
+## DynamoDB Local Management
 
 ```bash
-docker rm -f pg
-docker run -d --name pg -e POSTGRES_PASSWORD=password -p 5432:5432 postgres:15
-```
+# Start (idempotent — safe to re-run)
+bash scripts/local-dynamo.sh
 
-Then set `DATABASE_URL` and `DIRECT_URL` in `apps/api/.env.local` to use `password` as shown in Step 2.
+# Stop (data preserved)
+docker stop dynamodb-local
 
-**`Environment variable not found: DIRECT_URL`** — You're missing `apps/api/.env.local`. Run `cp .env.example apps/api/.env.local` and fill in the values from Step 2.
+# Restart
+docker start dynamodb-local
 
-**"Network request failed" on device** — Your phone can't reach `localhost`. Use your machine's IP in `apiUrl` (Step 5).
+# Full reset (destroys all data)
+docker rm -f dynamodb-local
+bash scripts/local-dynamo.sh
+pnpm db:seed
 
-**Prisma errors on startup** — Run `pnpm db:generate` again after any schema change.
-
-**OTP not working** — Confirm `TWILIO_VERIFY_SERVICE_SID` is empty/unset in `.env.local`. Check API logs for `[OTP dev mock]`.
-
-**Metro bundler cache issues** — Clear with:
-
-```bash
-npx expo start --clear
+# Browse table contents
+aws dynamodb scan \
+  --table-name club-connect-dev \
+  --endpoint-url http://localhost:8000 \
+  --no-cli-pager
 ```
 
 ---
@@ -232,15 +258,16 @@ npx expo start --clear
 
 From the repo root:
 
-```bash
-pnpm dev              # start all apps in dev mode
-pnpm build            # build all packages and apps
-pnpm typecheck        # typecheck all packages
-pnpm lint             # lint all packages
-pnpm db:generate      # generate Prisma client
-pnpm db:migrate       # run DB migrations
-pnpm db:seed          # seed initial data
-```
+| Command | Description |
+|---|---|
+| `pnpm install` | Install all dependencies |
+| `pnpm --filter @club-connect/api dev` | Start API server on port 3000 |
+| `pnpm --filter @club-connect/mobile dev` | Start Expo dev server |
+| `pnpm db:seed` | Seed sport types into DynamoDB |
+| `pnpm build` | Build all packages |
+| `pnpm typecheck` | Type-check all packages |
+| `pnpm lint` | Lint all packages |
+| `pnpm test` | Run all tests |
 
 ---
 
@@ -249,13 +276,38 @@ pnpm db:seed          # seed initial data
 Deployed on AWS (ap-south-1 / Mumbai):
 
 - **API**: Lambda container (Next.js + Lambda Web Adapter) behind API Gateway HTTP API
-- **Worker**: Lambda triggered by SQS (WhatsApp notifications) and EventBridge Scheduler (daily cron jobs)
-- **Database**: Supabase PostgreSQL (free tier)
-- **Storage**: Supabase Storage (profile photos, import files)
+- **Worker**: Lambda triggered by SQS (WhatsApp notifications) and EventBridge Scheduler (cron)
+- **Database**: DynamoDB (single table per environment, free tier)
+- **IaC**: Terraform modules + Terragrunt (dev + production environments)
 
-To deploy infrastructure (requires AWS credentials + Terraform/Terragrunt):
+See [CI/CD Plan](plans/ci_cd_plan.md) for deployment details.
 
-```bash
-cd infrastructure/terragrunt/staging
-terragrunt run-all apply
-```
+---
+
+## Troubleshooting
+
+**`docker: command not found`** — Install Docker Desktop and ensure it's running (whale icon in menu bar).
+
+**`aws: command not found`** — Install AWS CLI: `brew install awscli`.
+
+**Table creation fails with "connection refused"** — Docker may not be running. Start Docker Desktop, wait for it to be ready, then re-run `bash scripts/local-dynamo.sh`.
+
+**`ResourceNotFoundException` when calling the API** — DynamoDB table doesn't exist. Run `bash scripts/local-dynamo.sh` to create it.
+
+**API returns `{"status":"error","db":"disconnected"}`** — DynamoDB Local isn't running. Check with `docker ps | grep dynamodb` and start it with `docker start dynamodb-local`.
+
+**"Network request failed" on phone** — Your phone can't reach `localhost`. Use your machine's local IP in `apiUrl` (see mobile setup above).
+
+**OTP not working** — Confirm `TWILIO_VERIFY_SERVICE_SID` is NOT set in `.env.local`. Check API logs for `[OTP Mock]`.
+
+**Metro bundler cache issues** — Clear with `npx expo start --clear`.
+
+---
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| [Project Plan](plans/PLAN.md) | Full feature plan, data model, API design, screen flows |
+| [DynamoDB Design](plans/dynamodb_migration.md) | Single-table schema, access patterns, repository layer |
+| [CI/CD Plan](plans/ci_cd_plan.md) | AWS setup, GitHub Actions pipelines, deployment strategy |

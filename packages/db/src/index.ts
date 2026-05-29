@@ -1,16 +1,34 @@
-import { PrismaClient } from '@prisma/client'
+import { users } from './repos/users'
+import { refreshTokens } from './repos/refresh-tokens'
+import { clubs } from './repos/clubs'
+import { memberships } from './repos/memberships'
+import { houses } from './repos/houses'
+import { seasons } from './repos/seasons'
+import { houseMemberships } from './repos/house-memberships'
+import { sportTypes } from './repos/sport-types'
+import { matches } from './repos/matches'
+import { availability } from './repos/availability'
+import { feePayments } from './repos/fee-payments'
+import { captains } from './repos/captains'
+import { unavailability } from './repos/unavailability'
+import { notificationLogs } from './repos/notification-logs'
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
-
-export const prisma =
-  globalForPrisma.prisma ||
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  })
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma
+export const db = {
+  users,
+  refreshTokens,
+  clubs,
+  memberships,
+  houses,
+  seasons,
+  houseMemberships,
+  sportTypes,
+  matches,
+  availability,
+  feePayments,
+  captains,
+  unavailability,
+  notificationLogs,
 }
 
-export * from '@prisma/client'
-export type { PrismaClient }
+export { getTableName } from './client'
+export * from './types'

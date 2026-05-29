@@ -1,7 +1,9 @@
 # Club Connect — Claude Directives
 
-## Plan File
-Full project plan: `plans/PLAN.md` — read this before making architectural decisions.
+## Plan Files
+- Full project plan: `plans/PLAN.md` — read this before making architectural decisions.
+- CI/CD & deployment plan: `plans/ci_cd_plan.md` — AWS setup, pipelines, migrations, security practices.
+- DynamoDB migration plan: `plans/dynamodb_migration.md` — single-table design, access patterns, repository layer.
 
 ## Project Structure
 ```
@@ -10,7 +12,7 @@ club-connect/
 │   ├── api/        # Next.js API routes only (no frontend), deployed as Lambda container
 │   └── mobile/     # React Native (Expo)
 ├── packages/
-│   ├── db/         # Prisma schema + migrations
+│   ├── db/         # DynamoDB client + typed repositories
 │   ├── types/      # Shared TypeScript types
 │   └── notifications/  # WhatsApp provider abstraction
 └── infrastructure/
@@ -20,7 +22,7 @@ club-connect/
 ## Tech Stack
 - **Mobile**: React Native (Expo SDK 54), expo-router for navigation
 - **Backend**: Next.js 14 App Router (API routes only), deployed via Lambda Web Adapter
-- **Database**: Supabase PostgreSQL + Prisma ORM
+- **Database**: AWS DynamoDB (single-table design, free tier)
 - **Auth**: Phone OTP via Twilio Verify, JWT (jose library), tokens stored in Expo SecureStore
 - **Queue**: AWS SQS + Lambda (no BullMQ — must stay serverless compatible)
 - **Cron**: AWS EventBridge Scheduler
@@ -34,11 +36,13 @@ club-connect/
 - Do not add comments unless logic is non-obvious
 - Do not add error handling for impossible scenarios
 
-### Monorepo / Prisma
-- Always use `dotenv-cli` when running Prisma commands that need env vars:
-  `dotenv -e ../../.env -- npx prisma migrate dev`
-- Lambda uses the pooler DB URL (`pgbouncer=true&connection_limit=1`); migrations use the direct URL
-- Prisma schema lives in `packages/db/prisma/schema.prisma`
+### Monorepo / DynamoDB
+- Database layer lives in `packages/db/src/` — typed repositories wrapping DynamoDB Document Client
+- Single table `club-connect-{env}` with PK/SK patterns and 2 GSIs (GSI1, GSI2)
+- Access via `import { db } from '@club-connect/db'` then `db.users.findById(id)`, `db.matches.create(...)`, etc.
+- No schema migrations — DynamoDB is schema-less; table created via Terraform
+- Seed sport types: `pnpm db:seed` (idempotent, safe to re-run)
+- Local dev: set `DYNAMODB_TABLE_NAME` and optionally `DYNAMODB_ENDPOINT` for local DynamoDB
 
 ### Mobile (Expo)
 - **Never pass `+` phone numbers as URL params** — expo-router decodes `+` as a space. Use Zustand store (`pendingPhone`) for cross-screen phone state during auth flow.

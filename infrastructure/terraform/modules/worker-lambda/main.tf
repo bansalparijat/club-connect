@@ -5,6 +5,8 @@ variable "ecr_repository_url" { type = string }
 variable "sqs_queue_arn"     { type = string }
 variable "secrets_arn"       { type = string }
 variable "sqs_queue_url"     { type = string }
+variable "dynamodb_table_name" { type = string }
+variable "dynamodb_table_arn"  { type = string }
 
 # ─── IAM Role ──────────────────────────────────────────────────────────────────
 
@@ -46,6 +48,17 @@ data "aws_iam_policy_document" "worker_permissions" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [var.secrets_arn]
   }
+  statement {
+    actions = [
+      "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
+      "dynamodb:BatchWriteItem", "dynamodb:BatchGetItem"
+    ]
+    resources = [
+      var.dynamodb_table_arn,
+      "${var.dynamodb_table_arn}/index/*"
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "worker_lambda" {
@@ -75,9 +88,10 @@ resource "aws_lambda_function" "worker" {
 
   environment {
     variables = {
-      AWS_SECRETS_ARN = var.secrets_arn
-      SQS_QUEUE_URL   = var.sqs_queue_url
-      NODE_ENV        = var.env
+      AWS_SECRETS_ARN      = var.secrets_arn
+      SQS_QUEUE_URL        = var.sqs_queue_url
+      DYNAMODB_TABLE_NAME  = var.dynamodb_table_name
+      NODE_ENV             = var.env
     }
   }
 

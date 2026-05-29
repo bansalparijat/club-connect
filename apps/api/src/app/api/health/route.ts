@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 
 export async function GET() {
   try {
-    await prisma.$queryRaw`SELECT 1`
+    // Simple DynamoDB connectivity check — list sport types (cheap query)
+    await db.sportTypes.list()
     return NextResponse.json({ status: 'ok', db: 'connected', timestamp: new Date().toISOString() })
   } catch {
     return NextResponse.json({ status: 'error', db: 'disconnected' }, { status: 503 })

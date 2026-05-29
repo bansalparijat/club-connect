@@ -17,10 +17,7 @@
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"]
     },
-    "db:generate": {
-      "cache": false
-    },
-    "db:migrate": {
+    "seed": {
       "cache": false
     }
   }

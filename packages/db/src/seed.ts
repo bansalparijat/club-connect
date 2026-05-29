@@ -1,4 +1,4 @@
-import { prisma } from './index'
+import { db } from './index'
 
 async function main() {
   console.log('Seeding sport types...')
@@ -57,45 +57,39 @@ async function main() {
         { name: 'Match Format', type: 'SELECT' as const, options: ['Field Hockey', 'Indoor Hockey'], isRequired: false, displayOrder: 2 },
       ],
     },
-    {
-      name: 'Other',
-      parameters: [],
-    },
+    { name: 'Other', parameters: [] },
   ]
 
   for (const sport of sports) {
-    const sportType = await prisma.sportType.upsert({
-      where: { name: sport.name },
-      update: {},
-      create: { name: sport.name },
-    })
+    // Check if already exists
+    let sportType = await db.sportTypes.findByName(sport.name)
+    if (!sportType) {
+      sportType = await db.sportTypes.create({ name: sport.name })
+    }
+
+    // Check existing params to avoid duplicates
+    const existingParams = await db.sportTypes.listParameters(sportType.id)
+    const existingNames = new Set(existingParams.map(p => p.name))
 
     for (const param of sport.parameters) {
-      await prisma.sportParameter.upsert({
-        where: { sportTypeId_name: { sportTypeId: sportType.id, name: param.name } },
-        update: {},
-        create: {
-          sportTypeId: sportType.id,
-          name: param.name,
-          type: param.type,
-          options: param.options,
-          isRequired: param.isRequired,
-          displayOrder: param.displayOrder,
-        },
+      if (existingNames.has(param.name)) continue
+      await db.sportTypes.createParameter({
+        sportTypeId: sportType.id,
+        name: param.name,
+        type: param.type,
+        options: param.options,
+        isRequired: param.isRequired,
+        displayOrder: param.displayOrder,
       })
     }
 
-    console.log(`  ✓ ${sport.name} (${sport.parameters.length} parameters)`)
+    console.log(`  done: ${sport.name} (${sport.parameters.length} parameters)`)
   }
 
   console.log('Seeding complete.')
 }
 
-main()
-  .catch((e) => {
-    console.error(e)
-    process.exit(1)
-  })
-  .finally(async () => {
-    await prisma.$disconnect()
-  })
+main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

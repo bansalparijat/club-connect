@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withAuth, type RouteContext } from '@/middleware/auth'
 import { ok, err } from '@/lib/response'
 
@@ -9,21 +9,10 @@ const updateSchema = z.object({
   profilePhotoUrl: z.string().url().optional(),
 })
 
-function userToDTO(user: { id: string; phone: string; name: string; profilePhotoUrl: string | null; isStub: boolean; createdAt: Date }) {
-  return {
-    id: user.id,
-    phone: user.phone,
-    name: user.name,
-    profilePhotoUrl: user.profilePhotoUrl,
-    isStub: user.isStub,
-    createdAt: user.createdAt.toISOString(),
-  }
-}
-
 export const GET = withAuth(async (_req: NextRequest, _ctx: RouteContext, userId: string) => {
-  const user = await prisma.user.findUnique({ where: { id: userId } })
+  const user = await db.users.findById(userId)
   if (!user) return err.notFound('User')
-  return ok({ user: userToDTO(user) })
+  return ok({ user })
 })
 
 export const PATCH = withAuth(async (req: NextRequest, _ctx: RouteContext, userId: string) => {
@@ -36,10 +25,11 @@ export const PATCH = withAuth(async (req: NextRequest, _ctx: RouteContext, userI
   const update: { name?: string; profilePhotoUrl?: string; isStub?: boolean } = {}
   if (parsed.data.name) {
     update.name = parsed.data.name
-    update.isStub = false // Completing profile deactivates stub status
+    update.isStub = false
   }
   if (parsed.data.profilePhotoUrl !== undefined) update.profilePhotoUrl = parsed.data.profilePhotoUrl
 
-  const user = await prisma.user.update({ where: { id: userId }, data: update })
-  return ok({ user: userToDTO(user) })
+  const user = await db.users.update(userId, update)
+  if (!user) return err.notFound('User')
+  return ok({ user })
 })

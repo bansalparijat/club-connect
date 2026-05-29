@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withClubAdmin, type RouteContext } from '@/middleware/auth'
 import { ok, noContent, err } from '@/lib/response'
 
@@ -12,7 +12,7 @@ const updateSchema = z.object({
 
 export const PATCH = withClubAdmin(async (req: NextRequest, ctx: RouteContext, _userId: string, clubId: string) => {
   const { houseId } = ctx.params
-  const house = await prisma.house.findFirst({ where: { id: houseId, clubId } })
+  const house = await db.houses.findById(clubId, houseId)
   if (!house) return err.notFound('House')
 
   let body: unknown
@@ -21,21 +21,28 @@ export const PATCH = withClubAdmin(async (req: NextRequest, ctx: RouteContext, _
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) return err.badRequest('Invalid request', parsed.error.flatten().fieldErrors)
 
-  const updated = await prisma.house.update({ where: { id: houseId }, data: parsed.data })
+  const updated = await db.houses.update(clubId, houseId, parsed.data)
   return ok({ house: updated })
 })
 
 export const DELETE = withClubAdmin(async (_req: NextRequest, ctx: RouteContext, _userId: string, clubId: string) => {
   const { houseId } = ctx.params
-  const house = await prisma.house.findFirst({ where: { id: houseId, clubId } })
+  const house = await db.houses.findById(clubId, houseId)
   if (!house) return err.notFound('House')
 
   // Check if referenced by future matches
-  const futureMatch = await prisma.matchHouse.findFirst({
-    where: { houseId, match: { date: { gte: new Date() }, status: { not: 'CANCELLED' } } },
+  const clubMatches = await db.matches.listByClub(clubId, {
+    from: new Date().toISOString(),
+    ascending: true,
   })
-  if (futureMatch) return err.unprocessable('Cannot delete house referenced by future matches')
+  for (const m of clubMatches) {
+    if (m.status === 'CANCELLED') continue
+    const matchHouses = await db.matches.listHouses(m.id)
+    if (matchHouses.some(mh => mh.houseId === houseId)) {
+      return err.unprocessable('Cannot delete house referenced by future matches')
+    }
+  }
 
-  await prisma.house.delete({ where: { id: houseId } })
+  await db.houses.delete(clubId, houseId)
   return noContent()
 })

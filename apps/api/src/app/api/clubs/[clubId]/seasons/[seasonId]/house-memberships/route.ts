@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withClubAdmin, type RouteContext } from '@/middleware/auth'
 import { ok, err } from '@/lib/response'
 
@@ -19,19 +19,17 @@ export const POST = withClubAdmin(async (req: NextRequest, ctx: RouteContext, _u
   if (!parsed.success) return err.badRequest('Invalid request', parsed.error.flatten().fieldErrors)
 
   const [season, house, membership] = await Promise.all([
-    prisma.season.findFirst({ where: { id: seasonId, clubId } }),
-    prisma.house.findFirst({ where: { id: parsed.data.houseId, clubId } }),
-    prisma.clubMembership.findUnique({ where: { clubId_userId: { clubId, userId: parsed.data.userId } } }),
+    db.seasons.findById(clubId, seasonId),
+    db.houses.findById(clubId, parsed.data.houseId),
+    db.memberships.get(clubId, parsed.data.userId),
   ])
 
   if (!season) return err.notFound('Season')
   if (!house) return err.notFound('House')
   if (!membership || membership.status !== 'ACTIVE') return err.badRequest('User is not an active member of this club')
 
-  const houseMembership = await prisma.houseMembership.upsert({
-    where: { userId_seasonId: { userId: parsed.data.userId, seasonId } },
-    update: { houseId: parsed.data.houseId },
-    create: { userId: parsed.data.userId, seasonId, houseId: parsed.data.houseId },
+  const houseMembership = await db.houseMemberships.upsert({
+    userId: parsed.data.userId, seasonId, houseId: parsed.data.houseId,
   })
 
   return ok({ houseMembership })

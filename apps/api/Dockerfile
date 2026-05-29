@@ -21,9 +21,6 @@ COPY packages/ ./packages/
 COPY apps/api/ ./apps/api/
 COPY tsconfig.base.json ./
 
-# Generate Prisma client
-RUN pnpm --filter @club-connect/db db:generate
-
 # Build Next.js
 WORKDIR /app/apps/api
 RUN pnpm run build

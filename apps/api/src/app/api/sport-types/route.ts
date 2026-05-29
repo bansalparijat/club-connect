@@ -1,12 +1,7 @@
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { ok } from '@/lib/response'
 
 export async function GET() {
-  const sportTypes = await prisma.sportType.findMany({
-    include: {
-      parameters: { orderBy: { displayOrder: 'asc' } },
-    },
-    orderBy: { name: 'asc' },
-  })
+  const sportTypes = await db.sportTypes.listWithParameters()
   return ok({ sportTypes })
 }

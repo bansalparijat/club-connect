@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { verifyRefreshToken, signAccessToken } from '@/lib/jwt'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { ok, err } from '@/lib/response'
 
 const schema = z.object({ refreshToken: z.string() })
@@ -16,11 +16,9 @@ export async function POST(req: NextRequest) {
   try {
     const payload = await verifyRefreshToken(parsed.data.refreshToken)
 
-    const stored = await prisma.refreshToken.findUnique({
-      where: { token: parsed.data.refreshToken },
-    })
+    const stored = await db.refreshTokens.findByToken(parsed.data.refreshToken)
 
-    if (!stored || stored.userId !== payload.sub || stored.expiresAt < new Date()) {
+    if (!stored || stored.userId !== payload.sub || new Date(stored.expiresAt) < new Date()) {
       return err.unauthorized('Invalid or expired refresh token')
     }
 

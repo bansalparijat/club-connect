@@ -4,6 +4,8 @@ variable "image_tag"     { type = string }
 variable "secrets_arn"   { type = string }
 variable "sqs_queue_url" { type = string }
 variable "sqs_queue_arn" { type = string }
+variable "dynamodb_table_name" { type = string }
+variable "dynamodb_table_arn"  { type = string }
 
 # ─── ECR Repository ────────────────────────────────────────────────────────────
 
@@ -56,6 +58,18 @@ data "aws_iam_policy_document" "api_permissions" {
     actions   = ["sqs:SendMessage"]
     resources = [var.sqs_queue_arn]
   }
+  statement {
+    actions = [
+      "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:Scan",
+      "dynamodb:BatchWriteItem", "dynamodb:BatchGetItem",
+      "dynamodb:TransactWriteItems"
+    ]
+    resources = [
+      var.dynamodb_table_arn,
+      "${var.dynamodb_table_arn}/index/*"
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "api_lambda" {
@@ -81,9 +95,10 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      AWS_SECRETS_ARN = var.secrets_arn
-      SQS_QUEUE_URL   = var.sqs_queue_url
-      NODE_ENV        = var.env
+      AWS_SECRETS_ARN      = var.secrets_arn
+      SQS_QUEUE_URL        = var.sqs_queue_url
+      DYNAMODB_TABLE_NAME  = var.dynamodb_table_name
+      NODE_ENV             = var.env
     }
   }
 

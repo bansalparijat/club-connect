@@ -1,8 +1,8 @@
-import { prisma } from './prisma'
+import { db } from '@club-connect/db'
 import { NotificationService, createWhatsAppProvider, type NotificationLogger } from '@club-connect/notifications'
 import type { NotificationType } from '@club-connect/types'
 
-class PrismaNotificationLogger implements NotificationLogger {
+class DynamoNotificationLogger implements NotificationLogger {
   async log(opts: {
     userId: string
     type: NotificationType
@@ -10,14 +10,12 @@ class PrismaNotificationLogger implements NotificationLogger {
     referenceType?: string
     status: 'sent' | 'failed'
   }): Promise<void> {
-    await prisma.notificationLog.create({
-      data: {
-        userId: opts.userId,
-        type: opts.type,
-        referenceId: opts.referenceId,
-        referenceType: opts.referenceType,
-        status: opts.status,
-      },
+    await db.notificationLogs.create({
+      userId: opts.userId,
+      type: opts.type,
+      referenceId: opts.referenceId,
+      referenceType: opts.referenceType,
+      status: opts.status,
     })
   }
 
@@ -27,17 +25,12 @@ class PrismaNotificationLogger implements NotificationLogger {
     referenceId: string
     withinHours: number
   }): Promise<boolean> {
-    const cutoff = new Date(Date.now() - opts.withinHours * 60 * 60 * 1000)
-    const existing = await prisma.notificationLog.findFirst({
-      where: {
-        userId: opts.userId,
-        type: opts.type,
-        referenceId: opts.referenceId,
-        sentAt: { gte: cutoff },
-        status: 'sent',
-      },
+    return db.notificationLogs.hasSentRecently({
+      userId: opts.userId,
+      type: opts.type,
+      referenceId: opts.referenceId,
+      withinHours: opts.withinHours,
     })
-    return existing !== null
   }
 }
 
@@ -46,7 +39,7 @@ let notificationService: NotificationService | null = null
 export function getNotificationService(): NotificationService {
   if (!notificationService) {
     const provider = createWhatsAppProvider()
-    const logger = new PrismaNotificationLogger()
+    const logger = new DynamoNotificationLogger()
     notificationService = new NotificationService(provider, logger)
   }
   return notificationService

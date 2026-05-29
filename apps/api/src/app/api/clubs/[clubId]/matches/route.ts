@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withClubAdmin, withAuth, type RouteContext } from '@/middleware/auth'
 import { ok, created, err } from '@/lib/response'
 import { enqueueBatch } from '@/lib/sqs'
@@ -27,21 +27,9 @@ const createSchema = z.object({
   })),
 })
 
-function matchToDTO(m: { id: string; clubId: string; title: string; date: Date; venue: string; capacity: number; waitlistSize: number; feeAmount: unknown; feeCurrency: string | null; status: string; createdById: string; createdAt: Date; updatedAt: Date }) {
-  return {
-    id: m.id, clubId: m.clubId, title: m.title,
-    date: m.date.toISOString(), venue: m.venue,
-    capacity: m.capacity, waitlistSize: m.waitlistSize,
-    feeAmount: m.feeAmount?.toString() ?? null,
-    feeCurrency: m.feeCurrency, status: m.status,
-    createdById: m.createdById,
-    createdAt: m.createdAt.toISOString(), updatedAt: m.updatedAt.toISOString(),
-  }
-}
-
 export const GET = withAuth(async (req: NextRequest, ctx: RouteContext, userId: string) => {
   const { clubId } = ctx.params
-  const membership = await prisma.clubMembership.findUnique({ where: { clubId_userId: { clubId, userId } } })
+  const membership = await db.memberships.get(clubId, userId)
   if (!membership || membership.status !== 'ACTIVE') return err.forbidden()
 
   const { searchParams } = new URL(req.url)
@@ -51,67 +39,56 @@ export const GET = withAuth(async (req: NextRequest, ctx: RouteContext, userId: 
   const seasonId = searchParams.get('seasonId') ?? undefined
   const page = Math.max(1, Number(searchParams.get('page') ?? '1'))
   const limit = Math.min(50, Math.max(1, Number(searchParams.get('limit') ?? '20')))
-  const skip = (page - 1) * limit
 
-  const where = {
-    clubId,
-    ...(seasonId ? { seasonId } : {}),
-    ...(status ? { status: status as 'OPEN' | 'CLOSED' | 'CANCELLED' | 'DRAFT' } : { status: { not: 'CANCELLED' as const } }),
-    // When browsing by season, show all matches regardless of date; otherwise default to upcoming
-    date: seasonId ? undefined : {
-      ...(from ? { gte: new Date(from) } : { gte: new Date() }),
-      ...(to ? { lte: new Date(to) } : {}),
-    },
+  let allMatches
+  if (seasonId) {
+    allMatches = await db.matches.listBySeason(seasonId)
+    if (status) allMatches = allMatches.filter(m => m.status === status)
+  } else {
+    allMatches = await db.matches.listByClub(clubId, {
+      status,
+      from: from ?? new Date().toISOString(),
+      to: to ?? undefined,
+      ascending: true,
+    })
   }
 
-  const [matches, total] = await Promise.all([
-    prisma.match.findMany({
-      where,
-      include: {
-        houses: { include: { house: true } },
-        _count: {
-          select: {
-            availability: { where: { status: 'CONFIRMED' } },
-          },
-        },
-      },
-      skip,
-      take: limit,
-      orderBy: { date: seasonId ? 'desc' : 'asc' },
-    }),
-    prisma.match.count({ where }),
-  ])
+  const total = allMatches.length
+  const start = (page - 1) * limit
+  const matches = allMatches.slice(start, start + limit)
 
-  // Get user's availability status for these matches
+  // Get user's availability and fee data for these matches
   const matchIds = matches.map(m => m.id)
-  const [userAvailabilities, userFeePayments, waitlistCounts] = await Promise.all([
-    prisma.matchAvailability.findMany({ where: { matchId: { in: matchIds }, userId } }),
-    prisma.matchFeePayment.findMany({ where: { matchId: { in: matchIds }, userId } }),
-    prisma.matchAvailability.groupBy({
-      by: ['matchId'],
-      where: { matchId: { in: matchIds }, status: 'WAITLISTED' },
-      _count: true,
-    }),
+  const [userAvailabilities, userFeePayments] = await Promise.all([
+    db.availability.listByUserAcrossMatches(userId, matchIds),
+    db.feePayments.listByUserAcrossMatches(userId, matchIds),
   ])
 
   const availMap: Record<string, string> = {}
   userAvailabilities.forEach(a => { availMap[a.matchId] = a.status })
-
   const feeMap: Record<string, boolean> = {}
   userFeePayments.forEach(f => { feeMap[f.matchId] = f.markedPaid })
 
-  const waitlistMap: Record<string, number> = {}
-  waitlistCounts.forEach(w => { waitlistMap[w.matchId] = w._count })
+  // Get houses for each match
+  const result = []
+  for (const m of matches) {
+    const matchHouses = await db.matches.listHouses(m.id)
+    const houseDetails = []
+    for (const mh of matchHouses) {
+      const h = await db.houses.findById(m.clubId, mh.houseId)
+      if (h) houseDetails.push(h)
+    }
 
-  const result = matches.map(m => ({
-    id: m.id, title: m.title, date: m.date.toISOString(), venue: m.venue,
-    status: m.status, capacity: m.capacity, waitlistSize: m.waitlistSize,
-    confirmedCount: m._count.availability,
-    waitlistedCount: waitlistMap[m.id] ?? 0,
-    myStatus: (availMap[m.id] ?? null) as string | null,
-    hasFeeDue: m.feeAmount !== null && !feeMap[m.id],
-    houses: m.houses.map(mh => mh.house),
-  }))
+    result.push({
+      id: m.id, title: m.title, date: m.date, venue: m.venue,
+      status: m.status, capacity: m.capacity, waitlistSize: m.waitlistSize,
+      confirmedCount: m.confirmedCount,
+      waitlistedCount: m.waitlistedCount,
+      myStatus: (availMap[m.id] ?? null) as string | null,
+      hasFeeDue: m.feeAmount !== null && !feeMap[m.id],
+      houses: houseDetails,
+    })
+  }
 
   return ok({ matches: result, total })
 })
@@ -125,40 +102,26 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, u
 
   const { title, date, venue, capacity, waitlistSize, feeAmount, feeCurrency, houseIds, seasonId, parameters } = parsed.data
 
-  // Validate houses belong to this club
-  const houses = await prisma.house.findMany({ where: { id: { in: houseIds }, clubId } })
+  const houses = await db.houses.findByIds(clubId, houseIds)
   if (houses.length !== houseIds.length) return err.badRequest('One or more house IDs are invalid')
 
-  // Validate season belongs to this club
   if (seasonId) {
-    const season = await prisma.season.findFirst({ where: { id: seasonId, clubId } })
+    const season = await db.seasons.findById(clubId, seasonId)
     if (!season) return err.badRequest('Invalid season ID')
   }
 
-  const matchDate = new Date(date)
-
-  const match = await prisma.match.create({
-    data: {
-      clubId, title, date: matchDate, venue, capacity, waitlistSize,
-      feeAmount: feeAmount ?? null, feeCurrency: feeCurrency ?? 'INR',
-      seasonId: seasonId ?? null,
-      createdById: userId,
-      houses: { create: houseIds.map(houseId => ({ houseId })) },
-      parameters: { create: parameters.map(p => ({ key: p.key, value: p.value, sportParamId: p.sportParamId ?? null, isCustom: p.isCustom ?? false })) },
-    },
+  const match = await db.matches.create({
+    clubId, seasonId, title, date, venue, capacity, waitlistSize,
+    feeAmount, feeCurrency, createdById: userId, houseIds, parameters,
   })
 
   // Auto-mark unavailable members
-  await autoMarkUnavailable(match.id, clubId, matchDate)
+  await autoMarkUnavailable(match.id, clubId, new Date(date))
 
-  // Enqueue WhatsApp notifications for all active members
-  const activeMembers = await prisma.clubMembership.findMany({
-    where: { clubId, status: 'ACTIVE', notificationsEnabled: true },
-    include: { user: true },
-  })
-
-  const club = await prisma.club.findUnique({ where: { id: clubId } })
-  const { date: fmtDate, time: fmtTime } = formatMatchDate(matchDate)
+  // Enqueue WhatsApp notifications
+  const activeMembers = await db.memberships.listActiveWithNotifications(clubId)
+  const club = await db.clubs.findById(clubId)
+  const { date: fmtDate, time: fmtTime } = formatMatchDate(new Date(date))
   const teamsLine = houses.map(h => h.name).join(' vs ')
   const feeLine = feeAmount ? `Fee: ${feeCurrency ?? 'INR'} ${feeAmount}` : ''
 
@@ -167,60 +130,42 @@ export const POST = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, u
       type: 'MATCH_CREATED' as const,
       payload: {
         userId: m.userId,
-        phone: m.user.phone,
+        phone: m.userPhone,
         templateName: 'club_connect_match_created' as TemplateName,
         params: buildMatchCreatedParams({
           clubName: club?.name ?? 'Club',
-          date: fmtDate,
-          time: fmtTime,
-          venue,
-          teams: teamsLine,
-          feeLine,
+          date: fmtDate, time: fmtTime, venue, teams: teamsLine, feeLine,
         }),
       },
     }))
   )
 
-  return created({ match: matchToDTO(match) })
+  return created({
+    match: {
+      ...match,
+      feeAmount: match.feeAmount?.toString() ?? null,
+    },
+  })
 })
 
 async function autoMarkUnavailable(matchId: string, clubId: string, matchDate: Date) {
-  const dayOfWeek = matchDate.getDay()
+  const { items: activeMembers } = await db.memberships.listByClub(clubId, { status: 'ACTIVE' })
+  const userIds = activeMembers.map(m => m.userId)
 
-  const matchDayStart = new Date(matchDate.toDateString())
-  const matchDayEnd = new Date(matchDate.toDateString() + ' 23:59:59')
+  const matchingRules = await db.unavailability.findMatchingRules(clubId, matchDate, userIds)
+  if (matchingRules.length === 0) return
 
-  const unavailableUsers = await prisma.userUnavailability.findMany({
-    where: {
-      AND: [
-        { OR: [{ clubId }, { clubId: null }] },
-        { user: { clubMemberships: { some: { clubId, status: 'ACTIVE' } } } },
-        {
-          OR: [
-            { type: 'SPECIFIC_DATE', date: { gte: matchDayStart, lte: matchDayEnd } },
-            { type: 'RECURRING_WEEKLY', dayOfWeek, startFrom: { lte: matchDate } },
-          ],
-        },
-      ],
-    },
-    include: { user: true },
-  })
-
-  if (unavailableUsers.length === 0) return
-
-  // Filter recurring — only apply if matchDate is within the weeks range
-  const eligible = unavailableUsers.filter(u => {
-    if (u.type === 'SPECIFIC_DATE') return true
-    if (u.type === 'RECURRING_WEEKLY' && u.startFrom && u.weeksAhead) {
-      const endDate = new Date(u.startFrom)
-      endDate.setDate(endDate.getDate() + u.weeksAhead * 7)
-      return matchDate <= endDate
+  const usersToMark = matchingRules.map(r => {
+    const member = activeMembers.find(m => m.userId === r.userId)!
+    return {
+      userId: r.userId,
+      userName: member.userName,
+      userPhone: member.userPhone,
+      userProfilePhotoUrl: member.userProfilePhotoUrl,
+      userIsStub: member.userIsStub,
+      userCreatedAt: member.userCreatedAt,
     }
-    return false
   })
 
-  await prisma.matchAvailability.createMany({
-    data: eligible.map(u => ({ matchId, userId: u.userId, status: 'UNAVAILABLE' })),
-    skipDuplicates: true,
-  })
+  await db.availability.createManyUnavailable(matchId, usersToMark)
 }

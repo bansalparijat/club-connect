@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { withAuth, withClubAdmin, type RouteContext } from '@/middleware/auth'
 import { ok, err } from '@/lib/response'
 
@@ -14,31 +14,32 @@ export const GET = withAuth(async (_req: NextRequest, ctx: RouteContext, userId:
   const { clubId } = ctx.params
 
   const [club, membership] = await Promise.all([
-    prisma.club.findUnique({
-      where: { id: clubId },
-      include: {
-        sportType: { include: { parameters: { orderBy: { displayOrder: 'asc' } } } },
-        _count: { select: { memberships: { where: { status: 'ACTIVE' } } } },
-        seasons: { where: { isActive: true }, take: 1 },
-        memberships: {
-          where: { role: 'ADMIN', status: 'ACTIVE' },
-          include: { user: { select: { id: true, name: true, phone: true, profilePhotoUrl: true } } },
-        },
-      },
-    }),
-    prisma.clubMembership.findUnique({ where: { clubId_userId: { clubId, userId } } }),
+    db.clubs.findById(clubId),
+    db.memberships.get(clubId, userId),
   ])
 
   if (!club) return err.notFound('Club')
   if (!membership || membership.status !== 'ACTIVE') return err.forbidden()
 
+  const [sportType, seasons, admins] = await Promise.all([
+    db.sportTypes.findById(club.sportTypeId),
+    db.seasons.listByClub(clubId),
+    db.memberships.listAdminsByClub(clubId),
+  ])
+
+  const params = sportType ? await db.sportTypes.listParameters(sportType.id) : []
+  const activeSeason = seasons.find(s => s.isActive) ?? null
+
   return ok({
-    club: { ...club, createdAt: club.createdAt.toISOString(), updatedAt: club.updatedAt.toISOString() },
-    sportType: club.sportType,
-    myMembership: { ...membership, joinedAt: membership.joinedAt.toISOString(), updatedAt: membership.updatedAt.toISOString() },
-    activeSeason: club.seasons[0] ? { ...club.seasons[0], startDate: club.seasons[0].startDate.toISOString(), endDate: club.seasons[0].endDate?.toISOString() ?? null, createdAt: club.seasons[0].createdAt.toISOString(), updatedAt: club.seasons[0].updatedAt.toISOString() } : null,
-    memberCount: club._count.memberships,
-    admins: club.memberships.map((m) => m.user),
+    club,
+    sportType: sportType ? { ...sportType, parameters: params } : null,
+    myMembership: membership,
+    activeSeason,
+    memberCount: club.memberCount,
+    admins: admins.map(m => ({
+      id: m.userId, name: m.userName, phone: m.userPhone,
+      profilePhotoUrl: m.userProfilePhotoUrl,
+    })),
   })
 })
 
@@ -49,6 +50,7 @@ export const PATCH = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, 
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) return err.badRequest('Invalid request', parsed.error.flatten().fieldErrors)
 
-  const club = await prisma.club.update({ where: { id: clubId }, data: parsed.data })
-  return ok({ club: { ...club, createdAt: club.createdAt.toISOString(), updatedAt: club.updatedAt.toISOString() } })
+  const club = await db.clubs.update(clubId, parsed.data)
+  if (!club) return err.notFound('Club')
+  return ok({ club })
 })

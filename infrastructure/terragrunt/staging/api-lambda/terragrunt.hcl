@@ -20,7 +20,19 @@ dependency "sqs" {
   mock_outputs_allowed_terraform_commands = ["validate", "plan"]
 }
 
+dependency "dynamodb" {
+  config_path = "../dynamodb"
+
+  mock_outputs = {
+    table_name = "club-connect-staging"
+    table_arn  = "arn:aws:dynamodb:ap-south-1:000000000000:table/club-connect-staging"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+}
+
 inputs = {
-  sqs_queue_url = dependency.sqs.outputs.queue_url
-  sqs_queue_arn = dependency.sqs.outputs.queue_arn
+  sqs_queue_url       = dependency.sqs.outputs.queue_url
+  sqs_queue_arn       = dependency.sqs.outputs.queue_arn
+  dynamodb_table_name = dependency.dynamodb.outputs.table_name
+  dynamodb_table_arn  = dependency.dynamodb.outputs.table_arn
 }

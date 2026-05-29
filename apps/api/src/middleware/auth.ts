@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyAccessToken } from '@/lib/jwt'
-import { prisma } from '@/lib/prisma'
+import { db } from '@club-connect/db'
 import { err } from '@/lib/response'
 
 export type RouteContext = { params: Record<string, string> }
@@ -34,9 +34,7 @@ export function withClubAdmin(handler: ClubAdminHandler): Handler {
     const clubId = ctx.params.clubId
     if (!clubId) return err.badRequest('Missing clubId')
 
-    const membership = await prisma.clubMembership.findUnique({
-      where: { clubId_userId: { clubId, userId } },
-    })
+    const membership = await db.memberships.get(clubId, userId)
 
     if (!membership || membership.status !== 'ACTIVE') return err.forbidden()
     if (membership.role !== 'ADMIN') return err.forbidden('Admin access required')
@@ -50,12 +48,10 @@ export function withMatchAccess(handler: MatchHandler): Handler {
     const matchId = ctx.params.matchId
     if (!matchId) return err.badRequest('Missing matchId')
 
-    const match = await prisma.match.findUnique({ where: { id: matchId } })
+    const match = await db.matches.findById(matchId)
     if (!match) return err.notFound('Match')
 
-    const membership = await prisma.clubMembership.findUnique({
-      where: { clubId_userId: { clubId: match.clubId, userId } },
-    })
+    const membership = await db.memberships.get(match.clubId, userId)
 
     if (!membership || membership.status !== 'ACTIVE') {
       return err.forbidden('You are not a member of this club')
@@ -66,20 +62,18 @@ export function withMatchAccess(handler: MatchHandler): Handler {
 }
 
 export async function isCaptainOrAdmin(userId: string, matchId: string): Promise<boolean> {
-  const match = await prisma.match.findUnique({ where: { id: matchId } })
+  const match = await db.matches.findById(matchId)
   if (!match) return false
 
   const [captain, membership] = await Promise.all([
-    prisma.matchCaptain.findUnique({ where: { matchId_userId: { matchId, userId } } }),
-    prisma.clubMembership.findUnique({ where: { clubId_userId: { clubId: match.clubId, userId } } }),
+    db.captains.get(matchId, userId),
+    db.memberships.get(match.clubId, userId),
   ])
 
   return !!captain || (!!membership && membership.role === 'ADMIN')
 }
 
 export async function isClubAdmin(userId: string, clubId: string): Promise<boolean> {
-  const membership = await prisma.clubMembership.findUnique({
-    where: { clubId_userId: { clubId, userId } },
-  })
+  const membership = await db.memberships.get(clubId, userId)
   return !!membership && membership.status === 'ACTIVE' && membership.role === 'ADMIN'
 }
