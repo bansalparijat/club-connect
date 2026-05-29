@@ -297,32 +297,55 @@ Valid prefixes: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`,
 
 ## 3. CI/CD Pipeline (GitHub Actions)
 
-### 3.1 Pipeline Architecture
+### 3.1 Branching Strategy
 
 ```
-Push to main ──┐
+main (protected) ── production-ready code
+  │
+  └── dev ── integration branch, auto-deploys to dev environment
+       │
+       └── feature/* ── individual feature branches, PR into dev
+```
+
+- **`dev` branch**: Push/merge triggers auto-deploy to dev environment
+- **`main` branch**: Manual workflow_dispatch triggers production deploy (with approval)
+- **CI** runs on every push and every PR to both `dev` and `main`
+- Feature branches are created from and PR'd into `dev`
+- When dev is stable, `dev` is merged into `main` via PR
+
+### 3.2 Pipeline Architecture
+
+```
+Push to dev ───┐
                v
          ┌──────────┐
-         │   CI      │  lint, typecheck, test, docker build test
+         │   CI      │  lint, typecheck, test, docker build
          └────┬─────┘
               │ (on success)
               v
          ┌──────────────┐
-         │  Deploy Dev   │  docker build+push, update lambdas,
-         │  (automatic)  │  terragrunt apply, seed, smoke test
+         │  Deploy Dev   │  docker build+push to ECR,
+         │  (automatic)  │  update lambdas, smoke test
          └──────────────┘
 
-Manual trigger (workflow_dispatch) ──┐
-                                    v
-                              ┌──────────────────┐
-                              │ Deploy Production  │  same steps, production env,
-                              │ (manual, gated)    │  requires approval
-                              └──────────────────┘
+Push to main (merge from dev) ──┐
+                                v
+                          ┌──────────┐
+                          │   CI      │  lint, typecheck, test
+                          └──────────┘
+
+Manual trigger on main (workflow_dispatch) ──┐
+                                            v
+                                   ┌──────────────────┐
+                                   │ Deploy Production  │  requires approval,
+                                   │ (manual, gated)    │  docker build+push,
+                                   │                    │  update lambdas, smoke test
+                                   └──────────────────┘
 ```
 
-### 3.2 Workflow: CI (`ci.yml`)
+### 3.3 Workflow: CI (`ci.yml`)
 
-Runs on every push to `main` and every PR.
+Runs on every push and every PR to `dev` or `main`.
 
 ```yaml
 # .github/workflows/ci.yml
@@ -330,9 +353,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev, main]
   pull_request:
-    branches: [main]
+    branches: [dev, main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -382,9 +405,9 @@ jobs:
         run: docker build -f apps/api/Dockerfile -t club-connect-api:ci .
 ```
 
-### 3.3 Workflow: Deploy Dev (`deploy-dev.yml`)
+### 3.4 Workflow: Deploy Dev (`deploy-dev.yml`)
 
-Auto-triggers on push to `main` after CI passes.
+Auto-triggers on push to `dev` branch.
 
 ```yaml
 # .github/workflows/deploy-dev.yml
@@ -392,7 +415,7 @@ name: Deploy Dev
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
 
 concurrency:
   group: deploy-dev
@@ -488,9 +511,9 @@ jobs:
           echo "Smoke test passed: HTTP $STATUS"
 ```
 
-### 3.4 Workflow: Deploy Production (`deploy-production.yml`)
+### 3.5 Workflow: Deploy Production (`deploy-production.yml`)
 
-Manual trigger only. Requires environment protection rules (approval).
+Manual trigger only, restricted to `main` branch. Requires environment protection rules (approval).
 
 ```yaml
 # .github/workflows/deploy-production.yml
@@ -503,11 +526,6 @@ on:
         description: 'Git SHA to deploy (default: HEAD of main)'
         required: false
         default: ''
-      skip_migrations:
-        description: 'Skip database migrations'
-        required: false
-        type: boolean
-        default: false
 
 concurrency:
   group: deploy-production
@@ -614,7 +632,7 @@ jobs:
           echo "Smoke test passed: HTTP $STATUS"
 ```
 
-### 3.5 Workflow: Terraform Plan/Apply (`infra.yml`)
+### 3.6 Workflow: Terraform Plan/Apply (`infra.yml`)
 
 Separate workflow for infrastructure changes. Only triggers when `infrastructure/` files change.
 
@@ -927,32 +945,31 @@ Once pipelines are running:
 ## 10. Deployment Sequence Diagram
 
 ```
-Developer pushes to main
+Developer pushes to dev branch
         │
         v
   ┌─ CI (ci.yml) ─────────────────────────────┐
   │  pnpm install → lint → typecheck → test    │
-  │  test (DynamoDB Local) → docker build       │
+  │  (test uses DynamoDB Local in CI)           │
   └────────────────────────┬───────────────────┘
                            │ pass
                            v
   ┌─ Deploy Dev (deploy-dev.yml) ──────────────┐
   │  1. OIDC → assume dev role                 │
   │  2. Docker build → push to ECR (:sha, :latest) │
-  │  3. aws lambda update-function-code (api)  │
-  │  4. aws lambda update-function-code (api)  │
-  │  5. aws lambda update-function-code (worker)│
-  │  6. Smoke test: GET /api/health → 200      │
+  │  3. Update API Lambda image                │
+  │  4. Update Worker Lambda image             │
+  │  5. Smoke test: GET /api/health → 200      │
   └────────────────────────────────────────────┘
 
-        ... later, when ready ...
+        ... when dev is stable, merge dev → main via PR ...
 
-  Admin clicks "Run workflow" on deploy-production.yml
+  Admin clicks "Run workflow" on deploy-production.yml (main branch only)
         │
         v
   ┌─ Deploy Production ───────────────────────────┐
   │  (requires GitHub environment approval)        │
   │  Same steps as dev, targeting production       │
-  │  resources, production DB, production ECR      │
+  │  resources + production ECR                    │
   └────────────────────────────────────────────────┘
 ```

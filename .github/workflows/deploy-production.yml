@@ -1,0 +1,115 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Git SHA to deploy (default: HEAD of main)'
+        required: false
+        default: ''
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ENV: production
+  ECR_REPO: club-connect-api-production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    # Only allow production deploys from main branch
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Determine ref
+        id: ref
+        run: |
+          if [ -n "${{ inputs.commit_sha }}" ]; then
+            echo "sha=${{ inputs.commit_sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # --- AWS Auth via OIDC ---
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.PROD_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # --- Docker Build & Push to ECR ---
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ steps.ref.outputs.sha }}
+        run: |
+          docker build -f apps/api/Dockerfile \
+            -t $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPO:stable \
+            .
+          docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPO:stable
+
+      # --- Update Lambda Functions ---
+      - name: Update API Lambda
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ steps.ref.outputs.sha }}
+        run: |
+          aws lambda update-function-code \
+            --function-name club-connect-api-production \
+            --image-uri $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG \
+            --no-cli-pager
+          aws lambda wait function-updated \
+            --function-name club-connect-api-production
+
+      - name: Update Worker Lambda
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ steps.ref.outputs.sha }}
+        run: |
+          aws lambda update-function-code \
+            --function-name club-connect-worker-production \
+            --image-uri $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG \
+            --no-cli-pager
+          aws lambda wait function-updated \
+            --function-name club-connect-worker-production
+
+      # --- Smoke Test ---
+      - name: Smoke test
+        run: |
+          API_URL=$(aws apigatewayv2 get-apis --query "Items[?Name=='club-connect-production'].ApiEndpoint" --output text)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/health" --max-time 30)
+          if [ "$STATUS" != "200" ]; then
+            echo "Smoke test failed: HTTP $STATUS"
+            exit 1
+          fi
+          echo "Smoke test passed: HTTP $STATUS"
