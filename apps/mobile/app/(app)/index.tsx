@@ -11,22 +11,21 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { matchApi, MatchSummary } from '@/api/client'
-import { useAuthStore } from '@/store/auth'
 import { useClubStore } from '@/store/club'
 import { MatchCard } from '@/components/MatchCard'
 import { ClubSwitcherSheet } from '@/components/ClubSwitcherSheet'
 
 export default function HomeScreen() {
   const router = useRouter()
-  const { user } = useAuthStore()
-  const { activeClub, activeClubId } = useClubStore()
+  const activeClubId = useClubStore((s) => s.activeClubId)
+  const clubs = useClubStore((s) => s.clubs)
 
   const [matches, setMatches] = useState<MatchSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [switcherVisible, setSwitcherVisible] = useState(false)
 
-  const club = activeClub()
+  const club = clubs.find((c) => c.id === activeClubId) ?? null
   const isAdmin = club?.myRole === 'ADMIN'
 
   const loadMatches = useCallback(async () => {

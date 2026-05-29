@@ -7,12 +7,13 @@ import {
   TouchableOpacity,
   Alert,
   Modal,
-  TextInput,
+  Image,
   Pressable,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import * as ImagePicker from 'expo-image-picker'
 import { clubApi, House } from '@/api/client'
 import { useClubStore } from '@/store/club'
 import { Button } from '@/components/ui/Button'
@@ -101,6 +102,23 @@ export default function HouseManagementScreen() {
     ])
   }
 
+  async function pickLogo() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Allow Club Connect to access your photos.')
+      return
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    })
+    if (!result.canceled && result.assets[0]) {
+      setLogoUrl(result.assets[0].uri)
+    }
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
@@ -119,7 +137,11 @@ export default function HouseManagementScreen() {
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <View style={styles.houseRow}>
-            <View style={[styles.colorDot, { backgroundColor: item.color ?? '#6b7280' }]} />
+            {item.logoUrl ? (
+              <Image source={{ uri: item.logoUrl }} style={styles.houseLogoThumb} />
+            ) : (
+              <View style={[styles.colorDot, { backgroundColor: item.color ?? '#6b7280' }]} />
+            )}
             <Text style={styles.houseName}>{item.name}</Text>
             <TouchableOpacity onPress={() => openEdit(item)} style={styles.iconBtn}>
               <Ionicons name="pencil-outline" size={18} color="#6b7280" />
@@ -149,14 +171,24 @@ export default function HouseManagementScreen() {
             error={nameError}
           />
 
-          <Input
-            label="Logo URL (optional)"
-            value={logoUrl}
-            onChangeText={setLogoUrl}
-            placeholder="https://example.com/logo.png"
-            autoCapitalize="none"
-            keyboardType="url"
-          />
+          <Text style={styles.colorLabel}>Logo (optional)</Text>
+          <View style={styles.logoRow}>
+            <TouchableOpacity style={styles.logoPicker} onPress={pickLogo}>
+              {logoUrl ? (
+                <Image source={{ uri: logoUrl }} style={styles.logoImage} />
+              ) : (
+                <View style={styles.logoPlaceholder}>
+                  <Ionicons name="image-outline" size={28} color="#9ca3af" />
+                  <Text style={styles.logoPlaceholderText}>Pick Logo</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            {logoUrl ? (
+              <TouchableOpacity style={styles.logoRemoveBtn} onPress={() => setLogoUrl('')}>
+                <Ionicons name="close-circle" size={22} color="#ef4444" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
 
           <Text style={styles.colorLabel}>Color</Text>
           <View style={styles.colorsRow}>
@@ -199,7 +231,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: 12,
   },
-  colorDot: { width: 20, height: 20, borderRadius: 10 },
+  colorDot: { width: 28, height: 28, borderRadius: 14 },
+  houseLogoThumb: { width: 28, height: 28, borderRadius: 14 },
   houseName: { flex: 1, fontSize: 15, fontWeight: '500', color: '#111827' },
   iconBtn: { padding: 4 },
   empty: { textAlign: 'center', color: '#9ca3af', fontSize: 14, paddingTop: 40 },
@@ -217,4 +250,10 @@ const styles = StyleSheet.create({
   colorsRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   colorSwatch: { width: 36, height: 36, borderRadius: 18 },
   colorSwatchSelected: { borderWidth: 3, borderColor: '#111827' },
+  logoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  logoPicker: { width: 72, height: 72, borderRadius: 12, overflow: 'hidden', backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' },
+  logoImage: { width: 72, height: 72 },
+  logoPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  logoPlaceholderText: { fontSize: 11, color: '#9ca3af', marginTop: 2 },
+  logoRemoveBtn: { padding: 4 },
 })
