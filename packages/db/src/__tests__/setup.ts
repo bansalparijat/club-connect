@@ -1,5 +1,5 @@
 import { CreateTableCommand, DeleteTableCommand, DynamoDBClient } from '@aws-sdk/client-dynamodb'
-import { beforeAll } from 'vitest'
+import { beforeAll, afterAll } from 'vitest'
 
 const TABLE_NAME = 'club-connect-test'
 const ENDPOINT = 'http://localhost:8000'
@@ -55,4 +55,13 @@ beforeAll(async () => {
     ],
     BillingMode: 'PAY_PER_REQUEST',
   }))
+})
+
+afterAll(async () => {
+  try {
+    await rawClient.send(new DeleteTableCommand({ TableName: TABLE_NAME }))
+  } catch {
+    // ignore
+  }
+  rawClient.destroy()
 })
