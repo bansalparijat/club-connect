@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  Linking,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -69,6 +70,10 @@ export default function MatchDetailScreen() {
   useEffect(() => { load() }, [load])
 
   const isAdmin = club?.myRole === 'ADMIN'
+
+  function handleCall(phone: string) {
+    Linking.openURL(`tel:${phone}`)
+  }
 
   async function handleAvailability(status: 'AVAILABLE' | 'UNAVAILABLE') {
     if (!detail) return
@@ -404,6 +409,9 @@ export default function MatchDetailScreen() {
                     color={a.hasPaid ? '#16a34a' : '#d1d5db'}
                   />
                 )}
+                <TouchableOpacity onPress={() => handleCall(a.user.phone)} hitSlop={8}>
+                  <Ionicons name="call-outline" size={16} color="#6b7280" />
+                </TouchableOpacity>
               </View>
             )
           })}
@@ -421,6 +429,9 @@ export default function MatchDetailScreen() {
                   color={a.hasPaid ? '#16a34a' : '#d1d5db'}
                 />
               )}
+              <TouchableOpacity onPress={() => handleCall(a.user.phone)} hitSlop={8}>
+                <Ionicons name="call-outline" size={16} color="#6b7280" />
+              </TouchableOpacity>
             </View>
           ))}
 
@@ -428,6 +439,9 @@ export default function MatchDetailScreen() {
             <View key={a.user.id} style={styles.playerRow}>
               <Avatar name={a.user.name} photoUrl={a.user.profilePhotoUrl} size={32} />
               <Text style={styles.playerName}>{a.user.name}</Text>
+              <TouchableOpacity onPress={() => handleCall(a.user.phone)} hitSlop={8}>
+                <Ionicons name="call-outline" size={16} color="#6b7280" />
+              </TouchableOpacity>
             </View>
           ))}
         </View>

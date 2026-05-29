@@ -107,7 +107,9 @@ export default function CreateMatchScreen() {
         ...(selectedSeasonId ? { seasonId: selectedSeasonId } : {}),
         parameters,
       })
-      router.back()
+      // Navigate to home (not back) so the match list refreshes via useFocusEffect
+      if (router.canDismiss()) router.dismissAll()
+      router.replace('/(app)/' as never)
     } catch (err: unknown) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to create match')
     } finally {

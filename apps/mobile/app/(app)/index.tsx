@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   RefreshControl,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useRouter } from 'expo-router'
+import { useRouter, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { matchApi, MatchSummary } from '@/api/client'
 import { useClubStore } from '@/store/club'
@@ -41,9 +41,9 @@ export default function HomeScreen() {
     }
   }, [activeClubId])
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     loadMatches()
-  }, [loadMatches])
+  }, [loadMatches]))
 
   async function handleRefresh() {
     setRefreshing(true)
