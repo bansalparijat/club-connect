@@ -61,6 +61,10 @@ club-connect/
 - **Hidden TextInput for OTP**: use `width: 1, height: 1, left: -1000` (off-screen), not `width: 0, height: 0` — Android won't show keyboard for zero-size inputs. Add 150 ms `setTimeout` before `.focus()`.
 - **Expo Router tab bar**: every file in `app/(app)/` auto-registers as a tab. Hide sub-screens with `options={{ href: null }}` in `_layout.tsx`.
 - **Expo Router state persistence**: navigation stack survives JS reloads. Guard screens that require prior state (e.g. OTP requires `pendingPhone`) with a redirect on mount.
+- **Zustand selector reactivity**: Use individual selectors (`useStore(s => s.field)`) not destructured object pattern (`const { field } = useStore()`) when the component needs to re-render on store changes. The home screen uses this for `activeClubId` and `clubs` to ensure FAB visibility updates on club switch.
+- **useFocusEffect for data refresh**: Home screen uses `useFocusEffect` (not `useEffect`) to reload matches on every focus — ensures newly created/edited matches appear without manual pull-to-refresh.
+- **Post-creation navigation**: After creating a match, use `dismissAll()` + `replace('/(app)/')` to return to home. Do NOT use `router.back()` — it would leave the create form in the nav stack.
+- **Image picker pattern**: All image pickers (profile photo, club logo, house logo) use `expo-image-picker` with `allowsEditing: true` + `aspect: [1, 1]` for square crop. No third-party crop library.
 - Config file is `next.config.mjs` (not `.js`) for the API app
 - API base URL set in `app.json` under `extra.apiUrl`
 - Last verified phone saved to AsyncStorage key `last_verified_phone`; shown as suggestion on phone screen

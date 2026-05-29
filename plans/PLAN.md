@@ -996,9 +996,10 @@ MatchDetailScreen
   Fee card (if match has fee):
     Amount shown, [Mark as Paid] button -> read-only [Paid] after marking
   Players section (tabs): Confirmed (N) | Waitlisted (N) | Unavailable (N)
-    Confirmed: avatar + name + HouseDot (colored dot/initial) + captain badge + fee icon (✓ paid / ○ unpaid)
-    Waitlisted: avatar + name + position number + HouseDot + fee icon
-    Unavailable: name only
+    Confirmed: avatar + name + HouseDot (colored dot/initial) + captain badge + fee icon (✓ paid / ○ unpaid) + call icon
+    Waitlisted: avatar + name + position number + HouseDot + fee icon + call icon
+    Unavailable: avatar + name + call icon
+    Call icon: opens native phone dialer via Linking.openURL(tel:), available to all members
 ```
 
 ### Create Match Screen (Admin)
@@ -1013,6 +1014,7 @@ CreateMatchScreen
   Custom parameters (key-value rows, + Add button)
   Match fee toggle -> amount input + currency selector
   "Create Match" -> POST /api/clubs/:id/matches
+  On success: dismissAll() + replace('/(app)/') — navigates to home, back button won't return to create form
 ```
 
 ### Edit Match Screen (Admin)
@@ -1064,7 +1066,9 @@ BulkImportScreen:
   Result: X imported, Y existing, Z errors (with row details)
 
 HouseManagementScreen:
-  Color swatch + name list; tap to edit (name, color, logoUrl), swipe to delete
+  Color swatch + name list; tap to edit (name, color, logo), swipe to delete
+  Logo: image picker with square crop (expo-image-picker, allowsEditing + 1:1 aspect)
+  House list shows logo thumbnail when set, falls back to color dot
 
 SeasonManagementScreen:
   List of seasons with Active (green) / Ended (red) badges
@@ -1102,6 +1106,10 @@ ClubSettingsScreen: name, description, logo
 | Captain label | "C" badge next to name in player lists |
 | House display per player | Colored dot (HouseDot component) + house initial, resolved from HouseMembership |
 | Fee payment display per player | Green checkmark (paid) or gray circle (unpaid) icon in player list |
+| Call player | Phone icon on every player row (confirmed/waitlisted/unavailable); opens native dialer; available to all members |
+| Match list refresh | Home screen uses `useFocusEffect` — reloads matches every time screen gains focus |
+| Post-create navigation | After creating a match, app navigates to home (not back); ensures match appears immediately |
+| House logo picker | Image picker with 1:1 square crop (same as profile photo), replaces raw URL text input |
 | Match complete | Admin taps "Mark Complete" → CLOSED; shown as "Completed" badge; all actions disabled |
 | Season matches view | Tap season → SeasonMatchesScreen sorted desc; shows all statuses including cancelled |
 | Team selection | Two-column Team A / Team B selector; validation prevents same house on both sides |
