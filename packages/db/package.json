@@ -7,15 +7,16 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "seed": "dotenv -e ../../apps/api/.env.local -- tsx src/seed.ts"
+    "seed": "dotenv -e ../../apps/api/.env.local -- tsx src/seed.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.600.0",
     "@aws-sdk/lib-dynamodb": "^3.600.0"
   },
   "devDependencies": {
-    "dotenv-cli": "^7.4.0",
-    "tsx": "^4.15.0",
+    "dotenv-cli": "^7.4.4",
+    "tsx": "^4.22.3",
     "typescript": "^5.4.0"
   }
 }

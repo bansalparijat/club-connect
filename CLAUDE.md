@@ -43,6 +43,16 @@ club-connect/
 - No schema migrations — DynamoDB is schema-less; table created via Terraform
 - Seed sport types: `pnpm db:seed` (idempotent, safe to re-run)
 - Local dev: set `DYNAMODB_TABLE_NAME` and optionally `DYNAMODB_ENDPOINT` for local DynamoDB
+- **DynamoDB reserved words**: Use `#alias` in UpdateExpression for reserved words (e.g., `capacity`, `status`, `date`, `name`). See [AWS reserved words list](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ReservedWords.html).
+
+### Testing
+- **Framework**: Vitest 3.x (pinned for Node 20 compat; Vitest 4 needs Node 22)
+- **Run all**: `pnpm test` — requires DynamoDB Local running on port 8000
+- **DB unit tests**: `packages/db/src/__tests__/repos/` — one file per repository, tests against DynamoDB Local
+- **API unit tests**: `apps/api/src/__tests__/lib/` — JWT, OTP lib tests
+- **Integration tests**: `apps/api/src/__tests__/integration/` — full flows (auth, club, match+availability, unavailability)
+- Each test suite gets a fresh DynamoDB table via `setupFiles`
+- Tests run sequentially (`fileParallelism: false`) to avoid DynamoDB Local contention
 
 ### Mobile (Expo)
 - **Never pass `+` phone numbers as URL params** — expo-router decodes `+` as a space. Use Zustand store (`pendingPhone`) for cross-screen phone state during auth flow.

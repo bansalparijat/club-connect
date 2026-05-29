@@ -254,6 +254,73 @@ aws dynamodb scan \
 
 ---
 
+## Running Tests
+
+Tests require DynamoDB Local to be running (same as development setup).
+
+```bash
+# Ensure DynamoDB Local is running
+docker start dynamodb-local || bash scripts/local-dynamo.sh
+
+# Run all tests (both packages in parallel via turborepo)
+pnpm test
+```
+
+### Test Structure
+
+Tests are split into two packages:
+
+**`packages/db`** — Unit tests for DynamoDB repository layer (60 tests)
+
+```bash
+pnpm --filter @club-connect/db test
+```
+
+| Test File | Covers |
+|---|---|
+| `users.test.ts` | Create, find by ID/phone, update, stub activation |
+| `clubs.test.ts` | CRUD, member count atomic increment/decrement |
+| `memberships.test.ts` | Create, list by club/user, filter, search, role update |
+| `matches.test.ts` | Create with houses+params, update, list by club, counts |
+| `availability.test.ts` | CONFIRMED/WAITLISTED upsert, position shifting, promotion, batch unavailable |
+| `fee-payments.test.ts` | Create (idempotent), mark paid, list, delete |
+| `houses-seasons.test.ts` | Houses CRUD, seasons CRUD, active status sync, house memberships |
+| `sport-types.test.ts` | Types + parameters CRUD, list with parameters |
+
+**`apps/api`** — Unit tests for lib + integration tests (42 tests)
+
+```bash
+pnpm --filter @club-connect/api test
+```
+
+| Test File | Type | Covers |
+|---|---|---|
+| `lib/jwt.test.ts` | Unit | Sign/verify access+refresh tokens, cross-type rejection |
+| `lib/otp.test.ts` | Unit | Phone normalization, dev mock OTP send/verify |
+| `integration/auth-flow.test.ts` | Integration | User creation, refresh token, re-login, stub activation |
+| `integration/club-flow.test.ts` | Integration | Full club lifecycle: sport type → user → club → members → houses → seasons → house assignments |
+| `integration/match-availability.test.ts` | Integration | Match creation → confirm → waitlist → full match → drop → waitlist promotion → position shift → fee marking → captain → close |
+| `integration/unavailability.test.ts` | Integration | Specific-date rules, recurring-weekly rules, matching logic, window boundaries |
+
+### Writing New Tests
+
+Tests use [Vitest](https://vitest.dev/) and run against DynamoDB Local on port 8000. Each test suite gets a fresh table (created in the global `setup.ts`).
+
+```typescript
+// Import db directly — env vars are set by setupFiles
+import { db } from '@club-connect/db'
+import { describe, it, expect } from 'vitest'
+
+describe('MyFeature', () => {
+  it('does something', async () => {
+    const user = await db.users.create({ phone: '+919000000001', name: 'Test', isStub: false })
+    expect(user.id).toBeTruthy()
+  })
+})
+```
+
+---
+
 ## Available Scripts
 
 From the repo root:
@@ -267,7 +334,26 @@ From the repo root:
 | `pnpm build` | Build all packages |
 | `pnpm typecheck` | Type-check all packages |
 | `pnpm lint` | Lint all packages |
-| `pnpm test` | Run all tests |
+| `pnpm test` | Run all tests (requires DynamoDB Local) |
+| `pnpm --filter @club-connect/db test` | Run DB repository unit tests only |
+| `pnpm --filter @club-connect/api test` | Run API unit + integration tests only |
+
+---
+
+## Version Constraints
+
+| Package | Pinned Version | Reason |
+|---|---|---|
+| Node.js | 20.x | AWS Lambda runtime; SDK warns about Node 22 after Jan 2027 |
+| Next.js | 14.x | Lambda Web Adapter tested with 14; 15+ has breaking changes |
+| TypeScript | 5.x | TS 6 is new with breaking changes; stay stable |
+| Vitest | 3.x | Vitest 4 requires Node 22+ (native rolldown binding) |
+| Vite | 6.x | Vite 7+ requires ESM-only Node 22+; Vitest 3 needs Vite 6 |
+| Zod | 3.x | Zod 4 is a major rewrite; migration not trivial |
+| jose | 5.x | jose 6 has breaking API changes |
+| Expo | SDK 54 | Update all expo packages together via `npx expo install --fix` |
+
+When ready to upgrade Node to 22+, Vitest 4 + Vite 8 + the latest AWS SDK can all be updated together.
 
 ---
 

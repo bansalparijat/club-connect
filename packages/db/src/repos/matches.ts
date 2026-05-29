@@ -143,7 +143,11 @@ export const matches = {
       names['#date'] = 'date'
       values[':date'] = data.date
     }
-    if (data.capacity !== undefined) { sets.push('capacity = :capacity'); values[':capacity'] = data.capacity }
+    if (data.capacity !== undefined) {
+      sets.push('#capacity = :capacity')
+      names['#capacity'] = 'capacity'
+      values[':capacity'] = data.capacity
+    }
     if (data.waitlistSize !== undefined) { sets.push('waitlistSize = :wl'); values[':wl'] = data.waitlistSize }
     if (data.feeAmount !== undefined) { sets.push('feeAmount = :fee'); values[':fee'] = data.feeAmount }
     if (data.status !== undefined) {

@@ -190,9 +190,6 @@ aws secretsmanager create-secret \
   --secret-string '{
     "JWT_SECRET": "...",
     "JWT_REFRESH_SECRET": "...",
-    "DATABASE_URL": "postgresql://...@pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1",
-    "DIRECT_URL": "postgresql://...@db.supabase.com:5432/postgres",
-    "SUPABASE_SERVICE_KEY": "...",
     "TWILIO_ACCOUNT_SID": "...",
     "TWILIO_AUTH_TOKEN": "...",
     "TWILIO_VERIFY_SERVICE_SID": "...",
@@ -209,15 +206,7 @@ aws secretsmanager create-secret \
   --secret-string '{...}'
 ```
 
-### 1.4 Supabase Projects
-
-Two separate Supabase projects:
-- `club-connect-dev` — dev database
-- `club-connect-prod` — production database
-
-Each has its own pooler URL (for Lambda) and direct URL (for migrations).
-
-### 1.5 GitHub Repository Secrets & Variables
+### 1.4 GitHub Repository Secrets & Variables
 
 Set these in GitHub repo Settings > Secrets and variables > Actions:
 
@@ -225,8 +214,6 @@ Set these in GitHub repo Settings > Secrets and variables > Actions:
 | Secret | Description |
 |---|---|
 | `AWS_ACCOUNT_ID` | AWS account number |
-| `DEV_DATABASE_URL` | Supabase direct URL for dev (used by migration step) |
-| `PROD_DATABASE_URL` | Supabase direct URL for production (used by migration step) |
 
 **Variables:**
 | Variable | Value |
@@ -235,7 +222,7 @@ Set these in GitHub repo Settings > Secrets and variables > Actions:
 | `DEV_ROLE_ARN` | `arn:aws:iam::ACCOUNT_ID:role/club-connect-github-actions-dev` |
 | `PROD_ROLE_ARN` | `arn:aws:iam::ACCOUNT_ID:role/club-connect-github-actions-production` |
 
-> Database URLs are secrets because they contain credentials. Role ARNs are variables (not sensitive).
+> No database URLs needed — DynamoDB table name is derived from environment and injected via Terraform. All app secrets (JWT, Twilio, etc.) live in AWS Secrets Manager.
 
 ---
 
@@ -285,9 +272,6 @@ Slightly heavier checks before code leaves the machine:
 
 # Typecheck the entire project
 pnpm turbo typecheck
-
-# Ensure Prisma schema is valid
-cd packages/db && npx prisma validate
 ```
 
 ### 2.5 Commit Message Convention (`.husky/commit-msg`)
@@ -319,13 +303,13 @@ Valid prefixes: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`,
 Push to main ──┐
                v
          ┌──────────┐
-         │   CI      │  lint, typecheck, test, prisma validate, docker build test
+         │   CI      │  lint, typecheck, test, docker build test
          └────┬─────┘
               │ (on success)
               v
          ┌──────────────┐
-         │  Deploy Dev   │  docker build+push, prisma migrate, update lambdas,
-         │  (automatic)  │  terragrunt apply, smoke test
+         │  Deploy Dev   │  docker build+push, update lambdas,
+         │  (automatic)  │  terragrunt apply, seed, smoke test
          └──────────────┘
 
 Manual trigger (workflow_dispatch) ──┐
@@ -373,20 +357,26 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Prisma generate
-        run: pnpm run db:generate
-
       - name: Lint
         run: pnpm turbo lint
 
       - name: Typecheck
         run: pnpm turbo typecheck
 
-      - name: Test
-        run: pnpm turbo test
+      - name: Start DynamoDB Local
+        run: |
+          docker run -d --name dynamodb-ci -p 8000:8000 amazon/dynamodb-local:latest
+          sleep 2
+          bash scripts/local-dynamo.sh
 
-      - name: Prisma validate
-        run: cd packages/db && npx prisma validate
+      - name: Test
+        env:
+          DYNAMODB_TABLE_NAME: club-connect-test
+          DYNAMODB_ENDPOINT: http://localhost:8000
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: ap-south-1
+        run: pnpm turbo test
 
       - name: Docker build (smoke test)
         run: docker build -f apps/api/Dockerfile -t club-connect-api:ci .
@@ -460,15 +450,6 @@ jobs:
             .
           docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPO:latest
-
-      # --- Database Migration ---
-      - name: Run Prisma migrations
-        env:
-          DATABASE_URL: ${{ secrets.DEV_DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DEV_DATABASE_URL }}
-        run: |
-          cd packages/db
-          npx prisma migrate deploy
 
       # --- Update Lambda Functions ---
       - name: Update API Lambda
@@ -595,16 +576,6 @@ jobs:
             .
           docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPO:stable
-
-      # --- Database Migration ---
-      - name: Run Prisma migrations
-        if: ${{ !inputs.skip_migrations }}
-        env:
-          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.PROD_DATABASE_URL }}
-        run: |
-          cd packages/db
-          npx prisma migrate deploy
 
       # --- Update Lambda Functions ---
       - name: Update API Lambda
@@ -737,50 +708,38 @@ jobs:
 
 ---
 
-## 4. Database Migration Strategy
+## 4. Database Strategy (DynamoDB)
 
-### 4.1 Migration Approach
+### 4.1 No Schema Migrations
 
-Prisma Migrate is used for all schema changes. Two commands exist:
+DynamoDB is schema-less — there are no migration files or migration steps in CI/CD. The table (with GSIs) is created once via Terraform and never altered.
 
-| Command | When | Description |
-|---|---|---|
-| `prisma migrate dev` | Local development | Creates new migration files, applies them, regenerates client |
-| `prisma migrate deploy` | CI/CD pipeline | Applies pending migrations only, no new files, no prompts |
+Changes to data access patterns are handled in application code (the repository layer in `packages/db/src/repos/`).
 
-### 4.2 Migration Flow
+### 4.2 Seed Data
 
-```
-Developer locally:
-  1. Edit schema.prisma
-  2. Run: cd packages/db && dotenv -e ../../apps/api/.env.local -- npx prisma migrate dev --name describe_change
-  3. Commit the new migration file in packages/db/prisma/migrations/
-  4. Push to main
+Sport types and their parameters are seeded via `pnpm db:seed`. This is idempotent (checks for existing records before inserting). Run after initial table creation.
 
-CI/CD pipeline:
-  1. Checkout code (includes new migration files)
-  2. Run: npx prisma migrate deploy (uses DIRECT_URL, not pooler)
-  3. If migration fails → pipeline fails, Lambda not updated (safe)
-  4. If migration succeeds → proceed to Lambda update
-```
+### 4.3 Adding New Entity Types
 
-### 4.3 Critical Rules
+1. Add the TypeScript interface in `packages/db/src/types.ts`
+2. Add a new repository file in `packages/db/src/repos/`
+3. Export from `packages/db/src/index.ts`
+4. Add tests in `packages/db/src/__tests__/repos/`
+5. No infrastructure changes needed — all entities share the same DynamoDB table
 
-1. **Migration runs BEFORE Lambda update** — the new code expects the new schema, so the DB must be ready first
-2. **Use `prisma migrate deploy`** in CI, never `prisma migrate dev` — `deploy` is non-interactive and safe for automation
-3. **Use the direct Supabase URL** for migrations (port 5432), not the pooler URL (port 6543) — PgBouncer doesn't support DDL transactions
-4. **Never skip migrations without understanding the risk** — the production deploy has a `skip_migrations` escape hatch, but use it only when the deploy contains zero schema changes
-5. **Backward-compatible migrations** — when possible, make migrations additive (add column, add table) rather than destructive (drop column). For breaking changes, use a two-phase deploy:
-   - Phase 1: Add new column (nullable), deploy code that writes to both old and new
-   - Phase 2: Backfill data, drop old column, deploy code that uses only new
+### 4.4 Adding New Access Patterns
 
-### 4.4 Rollback Strategy
+If a new access pattern requires a new GSI:
+1. Add the GSI to `infrastructure/terraform/modules/dynamodb/main.tf`
+2. Run `terragrunt apply` — DynamoDB supports adding GSIs to existing tables
+3. Update the repository code to use the new GSI
 
-Prisma doesn't natively support down-migrations. If a migration breaks production:
+### 4.5 Rollback Strategy
 
-1. **Immediate**: Roll back the Lambda to the previous image (deploy the prior git SHA)
-2. **Fix forward**: Create a new migration that reverses the damage, push, deploy
-3. **Nuclear option**: `prisma migrate resolve --rolled-back <migration_name>` then manual SQL
+1. **Immediate**: Redeploy the previous Lambda image (previous git SHA via workflow_dispatch)
+2. **Data fix**: Write a one-off script to fix/backfill data if needed
+3. **Point-in-time recovery**: PITR is enabled on the table — restore to any point in the last 35 days via AWS Console
 
 ---
 
@@ -791,8 +750,7 @@ Prisma doesn't natively support down-migrations. If a migration breaks productio
 | Layer | Approach |
 |---|---|
 | AWS credentials | OIDC — no long-lived keys stored anywhere |
-| App secrets (JWT, DB, Twilio) | AWS Secrets Manager, fetched on Lambda cold start |
-| DB URLs for migrations | GitHub Actions secrets (encrypted at rest, masked in logs) |
+| App secrets (JWT, Twilio, WhatsApp) | AWS Secrets Manager, fetched on Lambda cold start |
 | Local dev | `apps/api/.env.local` (gitignored) |
 
 ### 5.2 .gitignore Verification
@@ -876,13 +834,13 @@ Create two environments in GitHub repo Settings > Environments:
 
 **`dev`**:
 - No approval required
-- Secrets: `DEV_DATABASE_URL`
+- No database secrets needed (DynamoDB table name from Terraform)
 - Can deploy from `main` branch
 
 **`production`**:
 - Required reviewers: 1+ (you or trusted collaborators)
 - Wait timer: 0 (approval is enough)
-- Secrets: `PROD_DATABASE_URL`
+- No database secrets needed
 - Can deploy from `main` branch only
 
 ### 6.3 Mobile App Configuration
@@ -908,7 +866,7 @@ Response: { status: "ok", version: "<git-sha>", environment: "<env>" }
 
 This must:
 - Return 200 when the app is running
-- Optionally check DB connectivity (Prisma `$queryRaw`SELECT 1``)
+- Optionally check DB connectivity (DynamoDB query on sport types)
 - Be unauthenticated (no JWT required)
 - Include the git SHA (injected via Docker build arg or env var) for deploy verification
 
@@ -929,16 +887,14 @@ Run these steps once before the first pipeline execution:
 - [ ] Run `terragrunt run-all apply` for dev from local machine (bootstraps ECR, Lambda, SQS, API GW, EventBridge)
 - [ ] Run `terragrunt run-all apply` for production from local machine
 
-### 8.2 Supabase
+### 8.2 DynamoDB
 
-- [ ] Create `club-connect-dev` Supabase project
-- [ ] Create `club-connect-prod` Supabase project
-- [ ] Note down pooler URLs and direct URLs for both
-- [ ] Run initial `prisma migrate deploy` against both databases
+- [ ] Tables are created automatically by Terragrunt (step 8.1)
+- [ ] Run `pnpm db:seed` against each environment after first deploy
 
 ### 8.3 GitHub
 
-- [ ] Add secrets: `AWS_ACCOUNT_ID`, `DEV_DATABASE_URL`, `PROD_DATABASE_URL`
+- [ ] Add secrets: `AWS_ACCOUNT_ID`
 - [ ] Add variables: `AWS_REGION`, `DEV_ROLE_ARN`, `PROD_ROLE_ARN`
 - [ ] Create environments: `dev`, `production` (with protection rules)
 - [ ] Enable branch protection on `main`
@@ -976,14 +932,14 @@ Developer pushes to main
         v
   ┌─ CI (ci.yml) ─────────────────────────────┐
   │  pnpm install → lint → typecheck → test    │
-  │  prisma validate → docker build (dry run)  │
+  │  test (DynamoDB Local) → docker build       │
   └────────────────────────┬───────────────────┘
                            │ pass
                            v
   ┌─ Deploy Dev (deploy-dev.yml) ──────────────┐
   │  1. OIDC → assume dev role                 │
   │  2. Docker build → push to ECR (:sha, :latest) │
-  │  3. prisma migrate deploy (dev DB)         │
+  │  3. aws lambda update-function-code (api)  │
   │  4. aws lambda update-function-code (api)  │
   │  5. aws lambda update-function-code (worker)│
   │  6. Smoke test: GET /api/health → 200      │

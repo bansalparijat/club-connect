@@ -36,10 +36,6 @@ export const notificationLogs = {
       TableName: getTableName(),
       IndexName: 'GSI1',
       KeyConditionExpression: 'GSI1PK = :pk AND GSI1SK > :cutoff',
-      ExpressionAttributeValues: {
-        ':pk': `NOTIF_REF#${opts.referenceId}#${opts.type}`,
-        ':cutoff': cutoff,
-      },
       FilterExpression: 'userId = :uid AND #status = :sent',
       ExpressionAttributeNames: { '#status': 'status' },
       ExpressionAttributeValues: {
