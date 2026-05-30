@@ -103,7 +103,42 @@ jobs:
           curl -sL "https://github.com/gruntwork-io/terragrunt/releases/download/v$TERRAGRUNT_VERSION/terragrunt_linux_amd64" \
             -o /usr/local/bin/terragrunt && chmod +x /usr/local/bin/terragrunt
 
-      - name: Terragrunt apply (dev)
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create ECR + SQS + DynamoDB first
+        working-directory: infrastructure/terragrunt/staging
+        run: |
+          terragrunt apply --terragrunt-non-interactive -target=aws_ecr_repository.api --terragrunt-working-dir api-lambda 2>/dev/null || true
+          terragrunt run-all apply --terragrunt-non-interactive --terragrunt-ignore-dependency-errors \
+            --terragrunt-include-dir sqs --terragrunt-include-dir dynamodb 2>/dev/null || true
+
+      - name: Seed ECR with Docker image (first-time bootstrap)
+        run: |
+          REPO_NAME="club-connect-api-staging"
+          REGION="ap-south-1"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+
+          # Skip if repo already has images
+          IMAGE_COUNT=$(aws ecr describe-images --repository-name "$REPO_NAME" --query 'length(imageDetails)' --output text 2>/dev/null || echo "0")
+          if [ "$IMAGE_COUNT" != "0" ] && [ "$IMAGE_COUNT" != "None" ]; then
+            echo "ECR already has images, skipping"
+            exit 0
+          fi
+
+          echo "Building and pushing initial Docker image..."
+          aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+          docker build -f apps/api/Dockerfile -t "$REGISTRY/$REPO_NAME:latest" .
+          docker push "$REGISTRY/$REPO_NAME:latest"
+
+      - name: Terragrunt apply (all modules)
         working-directory: infrastructure/terragrunt/staging
         run: terragrunt run-all apply --terragrunt-non-interactive
 
@@ -139,6 +174,40 @@ jobs:
           else
             echo "path=infrastructure/terragrunt/staging" >> $GITHUB_OUTPUT
           fi
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Seed ECR with Docker image (first-time bootstrap)
+        if: inputs.action == 'apply'
+        run: |
+          ENV_NAME="${{ inputs.environment == 'production' && 'production' || 'staging' }}"
+          REPO_NAME="club-connect-api-${ENV_NAME}"
+          REGION="ap-south-1"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+
+          # Create ECR repo if it doesn't exist
+          aws ecr describe-repositories --repository-names "$REPO_NAME" 2>/dev/null || \
+            aws ecr create-repository --repository-name "$REPO_NAME" --image-scanning-configuration scanOnPush=true --no-cli-pager
+
+          # Skip if repo already has images
+          IMAGE_COUNT=$(aws ecr describe-images --repository-name "$REPO_NAME" --query 'length(imageDetails)' --output text 2>/dev/null || echo "0")
+          if [ "$IMAGE_COUNT" != "0" ] && [ "$IMAGE_COUNT" != "None" ]; then
+            echo "ECR already has images, skipping"
+            exit 0
+          fi
+
+          echo "Building and pushing initial Docker image..."
+          aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+          docker build -f apps/api/Dockerfile -t "$REGISTRY/$REPO_NAME:latest" .
+          docker push "$REGISTRY/$REPO_NAME:latest"
 
       - name: Terragrunt ${{ inputs.action }}
         working-directory: ${{ steps.dir.outputs.path }}
