@@ -1,0 +1,145 @@
+name: Infrastructure
+
+on:
+  push:
+    branches: [dev]
+    paths: ['infrastructure/**']
+  pull_request:
+    branches: [dev, main]
+    paths: ['infrastructure/**']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to apply'
+        required: true
+        type: choice
+        options: [dev, production]
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options: [plan, apply]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  TERRAFORM_VERSION: '1.7.0'
+  TERRAGRUNT_VERSION: '0.55.0'
+
+jobs:
+  # ── Plan on PRs ──────────────────────────────────────────────
+  plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        environment: [dev]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.DEV_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Install Terragrunt
+        run: |
+          curl -sL "https://github.com/gruntwork-io/terragrunt/releases/download/v$TERRAGRUNT_VERSION/terragrunt_linux_amd64" \
+            -o /usr/local/bin/terragrunt && chmod +x /usr/local/bin/terragrunt
+
+      - name: Terragrunt plan
+        id: plan
+        working-directory: infrastructure/terragrunt/staging
+        run: |
+          terragrunt run-all plan --terragrunt-non-interactive 2>&1 | tee /tmp/plan-output.txt
+          echo "plan<<EOF" >> $GITHUB_OUTPUT
+          tail -100 /tmp/plan-output.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const plan = `${{ steps.plan.outputs.plan }}`.slice(-3000);
+            const body = `### Terraform Plan (dev)\n\`\`\`\n${plan}\n\`\`\``;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+  # ── Apply dev on push to dev ─────────────────────────────────
+  apply-dev:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: dev
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.DEV_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Install Terragrunt
+        run: |
+          curl -sL "https://github.com/gruntwork-io/terragrunt/releases/download/v$TERRAGRUNT_VERSION/terragrunt_linux_amd64" \
+            -o /usr/local/bin/terragrunt && chmod +x /usr/local/bin/terragrunt
+
+      - name: Terragrunt apply (dev)
+        working-directory: infrastructure/terragrunt/staging
+        run: terragrunt run-all apply --terragrunt-non-interactive
+
+  # ── Manual apply (any environment) ───────────────────────────
+  manual-apply:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ inputs.environment == 'production' && vars.PROD_ROLE_ARN || vars.DEV_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Install Terragrunt
+        run: |
+          curl -sL "https://github.com/gruntwork-io/terragrunt/releases/download/v$TERRAGRUNT_VERSION/terragrunt_linux_amd64" \
+            -o /usr/local/bin/terragrunt && chmod +x /usr/local/bin/terragrunt
+
+      - name: Determine directory
+        id: dir
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            echo "path=infrastructure/terragrunt/production" >> $GITHUB_OUTPUT
+          else
+            echo "path=infrastructure/terragrunt/staging" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Terragrunt ${{ inputs.action }}
+        working-directory: ${{ steps.dir.outputs.path }}
+        run: terragrunt run-all ${{ inputs.action }} --terragrunt-non-interactive

@@ -917,16 +917,33 @@ This must:
 
 Run these steps once before the first pipeline execution:
 
-### 8.1 AWS Resources (Manual)
+### 8.1 AWS Bootstrap (one-time from laptop)
 
-- [ ] Create AWS OIDC provider for GitHub Actions
+```bash
+# 1. Bootstrap Terraform state backend (S3 + DynamoDB lock table)
+bash scripts/bootstrap-aws.sh
+
+# 2. Create OIDC provider for GitHub Actions
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+
+# 3. Create IAM roles with trust policy + permissions (see ci_cd_plan.md section 1.2)
+# 4. Create Secrets Manager secrets (club-connect/dev, club-connect/production)
+```
+
+After bootstrap, all infrastructure is managed via GitHub Actions:
+- Push infra changes to `dev` → auto-applies to dev environment
+- Manual workflow_dispatch → plan or apply any environment
+- PR with infra changes → plan posted as PR comment
+
+- [ ] Run `bash scripts/bootstrap-aws.sh` (S3 state bucket + DynamoDB lock table)
+- [ ] Create OIDC provider in AWS IAM
 - [ ] Create IAM roles (`club-connect-github-actions-dev`, `club-connect-github-actions-production`)
-- [ ] Attach IAM policies to both roles
-- [ ] Create S3 bucket for Terraform state (`club-connect-tf-state`)
-- [ ] Create DynamoDB table for Terraform locks (`club-connect-tf-locks`)
+- [ ] Attach IAM policies (ECR, Lambda, SQS, DynamoDB, API Gateway, Secrets Manager, S3 state, DynamoDB locks)
 - [ ] Create Secrets Manager secrets (`club-connect/dev`, `club-connect/production`)
-- [ ] Run `terragrunt run-all apply` for dev from local machine (bootstraps ECR, Lambda, SQS, API GW, EventBridge)
-- [ ] Run `terragrunt run-all apply` for production from local machine
+- [ ] Run Infrastructure workflow from GitHub Actions (workflow_dispatch → dev → apply)
 
 ### 8.2 DynamoDB
 
