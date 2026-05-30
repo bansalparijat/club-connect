@@ -400,7 +400,25 @@ Deployed on AWS (ap-south-1 / Mumbai):
 - **Database**: DynamoDB (single table per environment, free tier)
 - **IaC**: Terraform modules + Terragrunt (dev + production environments)
 
-See [CI/CD Plan](plans/ci_cd_plan.md) for deployment details.
+### First-Time AWS Setup (one-time from laptop)
+
+```bash
+bash scripts/bootstrap-aws.sh    # creates S3 state bucket + DynamoDB lock table
+```
+
+Then create the OIDC provider and IAM roles — see [CI/CD Plan](plans/ci_cd_plan.md) for details.
+
+### Ongoing Infrastructure Changes (via GitHub Actions)
+
+After bootstrap, **never run Terraform from your laptop**. All infra changes go through GitHub Actions:
+
+```
+Change infrastructure/ files → push to dev → auto-applies to dev
+Need to apply production?    → Actions → Infrastructure → Run workflow → production + apply
+PR with infra changes?       → Plan posted as PR comment for review
+```
+
+See [CI/CD Plan](plans/ci_cd_plan.md) for full deployment details.
 
 ---
 
