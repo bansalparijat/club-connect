@@ -300,18 +300,26 @@ Valid prefixes: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`,
 ### 3.1 Branching Strategy
 
 ```
-main (protected) ── production-ready code
+main (protected, no direct push) ── production-ready code
   │
   └── dev ── integration branch, auto-deploys to dev environment
        │
-       └── feature/* ── individual feature branches, PR into dev
+       └── feature/* ── individual feature branches (optional)
 ```
 
-- **`dev` branch**: Push/merge triggers auto-deploy to dev environment
-- **`main` branch**: Manual workflow_dispatch triggers production deploy (with approval)
+**Rules:**
+- **All commits go to `dev` first** — never commit directly to `main`
+- **`dev` → `main` only via PR** — create PR from `dev` to `main`, CI must pass, then merge
+- **`dev` branch**: Push triggers auto-deploy to dev environment
+- **`main` branch**: Protected, no direct pushes. Production deploy via manual workflow_dispatch
 - **CI** runs on every push and every PR to both `dev` and `main`
-- Feature branches are created from and PR'd into `dev`
-- When dev is stable, `dev` is merged into `main` via PR
+
+**Daily workflow:**
+1. Commit and push to `dev`
+2. Dev environment auto-deploys and is tested
+3. When ready for production: create PR `dev` → `main`
+4. CI passes on the PR → merge
+5. Manually trigger "Deploy Production" workflow on `main`
 
 ### 3.2 Pipeline Architecture
 
@@ -818,11 +826,26 @@ Already enabled in Terraform (`image_scanning_configuration { scan_on_push = tru
 
 ### 5.7 Branch Protection
 
-Configure on `main` branch:
-- Require PR reviews (at least 1 approval) before merging
-- Require CI status checks to pass
-- No force pushes
-- No deletions
+Configure on `main` branch (Settings > Branches > Add rule for `main`):
+- **No direct pushes** — all changes must come via PR from `dev`
+- **Require status checks to pass**: select the `ci` workflow
+- **No force pushes**
+- **No deletions**
+- **Do not require PR reviews** initially (single developer, self-merge is fine)
+
+When the team grows, enable "Require approvals" (1+).
+
+To set up via `gh` CLI:
+```bash
+gh api repos/OWNER/REPO/branches/main/protection \
+  --method PUT \
+  --field required_status_checks='{"strict":true,"contexts":["ci"]}' \
+  --field enforce_admins=false \
+  --field required_pull_request_reviews=null \
+  --field restrictions=null \
+  --field allow_force_pushes=false \
+  --field allow_deletions=false
+```
 
 ---
 
@@ -914,18 +937,19 @@ Run these steps once before the first pipeline execution:
 
 - [ ] Add secrets: `AWS_ACCOUNT_ID`
 - [ ] Add variables: `AWS_REGION`, `DEV_ROLE_ARN`, `PROD_ROLE_ARN`
-- [ ] Create environments: `dev`, `production` (with protection rules)
-- [ ] Enable branch protection on `main`
+- [ ] Create environments: `dev`, `production` (with protection rules on production)
+- [x] Create `dev` branch from `main`
+- [ ] Enable branch protection on `main` (no direct pushes, require CI to pass)
 - [ ] Enable secret scanning and push protection
 
-### 8.4 Codebase
+### 8.4 Codebase (Done)
 
-- [ ] Add `output: 'standalone'` to `next.config.mjs` (required for Dockerfile)
-- [ ] Add `/api/health` endpoint
-- [ ] Add `.github/workflows/ci.yml`
-- [ ] Add `.github/workflows/deploy-dev.yml`
-- [ ] Add `.github/workflows/deploy-production.yml`
-- [ ] Add `.github/workflows/infra.yml`
+- [x] `output: 'standalone'` in `next.config.mjs`
+- [x] `/api/health` endpoint
+- [x] `.github/workflows/ci.yml` — lint, typecheck, test, docker build
+- [x] `.github/workflows/deploy-dev.yml` — auto-deploy on push to dev
+- [x] `.github/workflows/deploy-production.yml` — manual deploy from main
+- [x] ESLint configs for API (`eslint@8` + `eslint-config-next@14`) and mobile (`eslint-config-expo`)
 - [ ] Install Husky and configure git hooks
 - [ ] Install lint-staged, commitlint
 

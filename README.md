@@ -69,6 +69,7 @@ club-connect/
 ```bash
 git clone <repo-url> club-connect
 cd club-connect
+git checkout dev    # always work on dev, never commit to main
 pnpm install
 ```
 
@@ -317,6 +318,31 @@ describe('MyFeature', () => {
     expect(user.id).toBeTruthy()
   })
 })
+```
+
+---
+
+## Branching & Deployment Workflow
+
+```
+dev (auto-deploys to dev environment)
+ └── PR → main (protected, production deploys)
+```
+
+**`main` is protected** — no direct pushes allowed. All changes go through `dev` first.
+
+```bash
+# Daily development — always on dev
+git checkout dev
+# ... make changes ...
+git add . && git commit -m "feat: my feature"
+git push origin dev          # triggers CI + auto-deploy to dev
+
+# When ready for production
+# 1. Create PR: dev → main (on GitHub)
+# 2. CI must pass on the PR
+# 3. Merge the PR
+# 4. Go to Actions → Deploy Production → Run workflow (on main)
 ```
 
 ---

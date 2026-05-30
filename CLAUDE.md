@@ -76,7 +76,15 @@ club-connect/
 - New users created with `name: ''` (empty string) — mobile checks `!data.user.name` to route to profile setup
 - `GET /api/clubs/:id` uses `withAuth` (any active member); includes `admins[]` in response
 
+### Lint
+- **API**: ESLint 8 + `eslint-config-next@14` (ESLint 9 has circular ref issues with Next.js 14). Config: `apps/api/.eslintrc.json`
+- **Mobile**: ESLint 8 + `eslint-config-expo`. Relaxed rules for `react-hooks/set-state-in-effect` (warn) and `no-unused-vars` (warn with `_` prefix ignore). Config: `apps/mobile/.eslintrc.js`
+- Run all: `pnpm lint`
+
 ### Git / GitHub
+- **Branching**: All work goes to `dev` branch. `main` is protected — no direct pushes, only PRs from `dev`.
+- **Workflow**: commit to `dev` → push → auto-deploys to dev env → when stable, PR `dev` → `main` → merge → manual production deploy
+- **Never commit directly to `main`** — it is protected and will reject direct pushes
 - Remote alias: `git@github.com-bansalparijat:bansalparijat/club-connect.git`
 - Pre-push hook may require `SECRET_SCAN_LOCAL=false git push ...` to bypass secret scanning
 
