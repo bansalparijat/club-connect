@@ -950,8 +950,9 @@ Run these steps once before the first pipeline execution:
 - [x] `.github/workflows/deploy-dev.yml` — auto-deploy on push to dev
 - [x] `.github/workflows/deploy-production.yml` — manual deploy from main
 - [x] ESLint configs for API (`eslint@8` + `eslint-config-next@14`) and mobile (`eslint-config-expo`)
-- [ ] Install Husky and configure git hooks
-- [ ] Install lint-staged, commitlint
+- [x] Husky pre-commit hook: `pnpm lint && pnpm typecheck && pnpm test`
+- [ ] Install lint-staged (optional: lint only staged files for speed)
+- [ ] Install commitlint (optional: enforce conventional commit messages)
 
 ---
 

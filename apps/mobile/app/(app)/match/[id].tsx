@@ -65,7 +65,7 @@ export default function MatchDetailScreen() {
     } finally {
       setLoading(false)
     }
-  }, [id])
+  }, [id, router])
 
   useEffect(() => { load() }, [load])
 
@@ -191,15 +191,6 @@ export default function MatchDetailScreen() {
   const { match, parameters, houses, availability, myStatus, fee, captains } = detail
   const isOpen = match.status === 'OPEN'
   const isClosed = match.status === 'CLOSED'
-  const isCaptain = captains.some((c) => c.id === user?.id)
-  const canManage = isAdmin || isCaptain
-
-  const myStatusLabel =
-    myStatus === 'CONFIRMED' ? 'Confirmed'
-    : myStatus === 'WAITLISTED' ? `Waitlisted`
-    : myStatus === 'UNAVAILABLE' ? 'Unavailable'
-    : myStatus === 'DROPPED' ? 'Dropped'
-    : null
 
   const waitlistPosition = myStatus === 'WAITLISTED'
     ? availability.waitlisted.findIndex((w) => w.user.id === user?.id) + 1

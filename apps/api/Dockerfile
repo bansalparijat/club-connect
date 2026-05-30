@@ -42,7 +42,6 @@ ENV HOSTNAME=0.0.0.0
 # Copy built app
 COPY --from=builder /app/apps/api/.next/standalone ./
 COPY --from=builder /app/apps/api/.next/static ./apps/api/.next/static
-COPY --from=builder /app/apps/api/public ./apps/api/public 2>/dev/null || true
 
 EXPOSE 3000
 

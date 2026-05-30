@@ -142,7 +142,6 @@ export default function BulkHousesScreen() {
         contentContainerStyle={styles.list}
         renderItem={({ item }) => {
           const assigned = assignments[item.userId]
-          const assignedHouse = houses.find(h => h.id === assigned)
           return (
             <View style={styles.memberRow}>
               <Avatar name={item.user.name} photoUrl={item.user.profilePhotoUrl} size={36} />

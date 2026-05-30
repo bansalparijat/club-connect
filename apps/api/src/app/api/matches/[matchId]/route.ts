@@ -47,7 +47,7 @@ export const GET = withMatchAccess(async (_req: NextRequest, _ctx: RouteContext,
   feePayments.forEach(f => { feeMap[f.userId] = f.markedPaid })
 
   // Resolve house per player from HouseMembership
-  let playerHouseMap: Record<string, { id: string; name: string; color: string | null; logoUrl: string | null }> = {}
+  const playerHouseMap: Record<string, { id: string; name: string; color: string | null; logoUrl: string | null }> = {}
   if (match.seasonId) {
     const allUserIds = allAvail.map(a => a.userId)
     const houseMembers = await db.houseMemberships.listByUserIds(match.seasonId, allUserIds)

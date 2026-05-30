@@ -31,7 +31,7 @@ export default function MemberListScreen() {
   const [total, setTotal] = useState(0)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<StatusFilter>('ACTIVE')
-  const [loading, setLoading] = useState(false)
+  const [_loading, setLoading] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [menuMember, setMenuMember] = useState<Member | null>(null)
 

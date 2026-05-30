@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import {
   View,
   Text,
@@ -37,15 +37,15 @@ export default function HouseManagementScreen() {
   const [saving, setSaving] = useState(false)
   const [nameError, setNameError] = useState('')
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!activeClubId) return
     try {
       const { houses: h } = await clubApi.getHouses(activeClubId)
       setHouses(h)
     } catch {}
-  }
+  }, [activeClubId])
 
-  useEffect(() => { load() }, [activeClubId])
+  useEffect(() => { load() }, [load])
 
   function openAdd() {
     setEditingHouse(null)

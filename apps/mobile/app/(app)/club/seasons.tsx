@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import {
   View,
   Text,
@@ -35,15 +35,15 @@ export default function SeasonManagementScreen() {
   const [saving, setSaving] = useState(false)
   const [nameError, setNameError] = useState('')
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!activeClubId) return
     try {
       const { seasons: s } = await clubApi.getSeasons(activeClubId)
       setSeasons(s)
     } catch {}
-  }
+  }, [activeClubId])
 
-  useEffect(() => { load() }, [activeClubId])
+  useEffect(() => { load() }, [load])
 
   function openCreate() {
     setSeasonName('')

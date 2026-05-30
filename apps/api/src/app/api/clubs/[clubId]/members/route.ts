@@ -45,7 +45,7 @@ export const GET = withClubAdmin(async (req: NextRequest, _ctx: RouteContext, _u
   const members = allMembers.slice(start, start + limit)
 
   // Fetch house assignments if active season
-  let houseMap: Record<string, { id: string; clubId: string; name: string; color: string | null }> = {}
+  const houseMap: Record<string, { id: string; clubId: string; name: string; color: string | null }> = {}
   if (activeSeason) {
     const userIds = members.map(m => m.userId)
     const houseMembers = await db.houseMemberships.listByUserIds(activeSeason.id, userIds)

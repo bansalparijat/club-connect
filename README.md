@@ -259,12 +259,19 @@ aws dynamodb scan \
 
 Tests require DynamoDB Local to be running (same as development setup).
 
+A **pre-commit hook** (husky) runs lint, typecheck, and tests automatically before every commit. You don't need to run them manually unless debugging — but DynamoDB Local must be running for commits to succeed.
+
 ```bash
-# Ensure DynamoDB Local is running
+# Ensure DynamoDB Local is running (required for commits!)
 docker start dynamodb-local || bash scripts/local-dynamo.sh
 
-# Run all tests (both packages in parallel via turborepo)
-pnpm test
+# Run individually
+pnpm lint          # ESLint across API + mobile
+pnpm typecheck     # TypeScript check across all packages
+pnpm test          # Vitest tests (102 tests, both packages)
+
+# Or all three (same as what the pre-commit hook runs)
+pnpm lint && pnpm typecheck && pnpm test
 ```
 
 ### Test Structure

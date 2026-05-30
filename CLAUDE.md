@@ -46,6 +46,7 @@ club-connect/
 - **DynamoDB reserved words**: Use `#alias` in UpdateExpression for reserved words (e.g., `capacity`, `status`, `date`, `name`). See [AWS reserved words list](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ReservedWords.html).
 
 ### Testing
+- **Pre-commit hook** (husky): runs `pnpm lint && pnpm typecheck && pnpm test` before every commit. DynamoDB Local must be running.
 - **Framework**: Vitest 3.x (pinned for Node 20 compat; Vitest 4 needs Node 22)
 - **Run all**: `pnpm test` — requires DynamoDB Local running on port 8000
 - **DB unit tests**: `packages/db/src/__tests__/repos/` — one file per repository, tests against DynamoDB Local
@@ -53,6 +54,7 @@ club-connect/
 - **Integration tests**: `apps/api/src/__tests__/integration/` — full flows (auth, club, match+availability, unavailability)
 - Each test suite gets a fresh DynamoDB table via `setupFiles`
 - Tests run sequentially (`fileParallelism: false`) to avoid DynamoDB Local contention
+- To skip hooks in exceptional cases: `git commit --no-verify` (avoid unless necessary)
 
 ### Mobile (Expo)
 - **Never pass `+` phone numbers as URL params** — expo-router decodes `+` as a space. Use Zustand store (`pendingPhone`) for cross-screen phone state during auth flow.
@@ -77,8 +79,10 @@ club-connect/
 - `GET /api/clubs/:id` uses `withAuth` (any active member); includes `admins[]` in response
 
 ### Lint
-- **API**: ESLint 8 + `eslint-config-next@14` (ESLint 9 has circular ref issues with Next.js 14). Config: `apps/api/.eslintrc.json`
-- **Mobile**: ESLint 8 + `eslint-config-expo`. Relaxed rules for `react-hooks/set-state-in-effect` (warn) and `no-unused-vars` (warn with `_` prefix ignore). Config: `apps/mobile/.eslintrc.js`
+- **API**: ESLint 9 + `typescript-eslint` (flat config). Config: `apps/api/eslint.config.mjs`. Runs `eslint src/` (not `next lint`).
+- **Mobile**: ESLint 9 + `eslint-config-expo/flat`. Config: `apps/mobile/eslint.config.js`.
+- Both must produce **zero errors and zero warnings** before commit (pre-commit hook enforces this).
+- All API routes that call DynamoDB must export `dynamic = 'force-dynamic'` to prevent Next.js build-time pre-rendering.
 - Run all: `pnpm lint`
 
 ### Git / GitHub
