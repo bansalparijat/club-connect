@@ -13,7 +13,7 @@ resource "aws_sqs_queue" "dlq" {
 
 resource "aws_sqs_queue" "main" {
   name                       = "${var.app_name}-notifications-${var.env}"
-  visibility_timeout_seconds = 60
+  visibility_timeout_seconds = 180  # must be >= worker Lambda timeout (120s)
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dlq.arn
