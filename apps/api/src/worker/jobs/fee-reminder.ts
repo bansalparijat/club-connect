@@ -15,8 +15,8 @@ export async function runFeeReminderJob(): Promise<void> {
 
   // Alternative: iterate known clubs → their matches → fee payments
   // For free-tier scale, a scan with filter is acceptable
-  const { DynamoDBDocumentClient, ScanCommand } = await import('@aws-sdk/lib-dynamodb')
-  const { docClient, getTableName } = await import('@club-connect/db/src/client')
+  const { ScanCommand } = await import('@aws-sdk/lib-dynamodb')
+  const { docClient, getTableName } = await import('@club-connect/db')
 
   const now = new Date().toISOString()
   const res = await docClient.send(new ScanCommand({

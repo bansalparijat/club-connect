@@ -30,5 +30,5 @@ export const db = {
   notificationLogs,
 }
 
-export { getTableName } from './client'
+export { docClient, getTableName } from './client'
 export * from './types'

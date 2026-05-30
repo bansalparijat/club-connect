@@ -11,6 +11,7 @@ process.env.AWS_ACCESS_KEY_ID = 'test'
 process.env.AWS_SECRET_ACCESS_KEY = 'test'
 process.env.JWT_SECRET = 'test-jwt-secret-at-least-32-characters-long'
 process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-at-least-32-chars'
+// @ts-expect-error NODE_ENV is typed as readonly but we need to set it for tests
 process.env.NODE_ENV = 'development'
 
 const rawClient = new DynamoDBClient({ region: 'ap-south-1', endpoint: ENDPOINT })

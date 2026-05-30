@@ -63,6 +63,9 @@ importers:
       '@aws-sdk/client-dynamodb':
         specifier: ^3.600.0
         version: 3.1056.0
+      '@aws-sdk/lib-dynamodb':
+        specifier: ^3.600.0
+        version: 3.1056.0(@aws-sdk/client-dynamodb@3.1056.0)
       '@types/aws-lambda':
         specifier: ^8.10.140
         version: 8.10.161
@@ -463,7 +466,6 @@ packages:
       '@smithy/core': 3.24.5
       '@smithy/types': 4.14.2
       tslib: 2.8.1
-    dev: false
 
   /@aws-sdk/middleware-endpoint-discovery@3.972.15:
     resolution: {integrity: sha512-L1wbvrAb0hv7Vx6eTEyqQwXaNETSj/L30BVCkSxD0k6Ve5cZUM0SLUvBn8aA/B4YtIpMzCbzNaVytZY7uOzJSw==}
@@ -535,7 +537,6 @@ packages:
     dependencies:
       '@aws-sdk/client-dynamodb': 3.1056.0
       tslib: 2.8.1
-    dev: false
 
   /@aws-sdk/util-locate-window@3.965.5:
     resolution: {integrity: sha512-WhlJNNINQB+9qtLtZJcpQdgZw3SCDCpXdUJP7cToGwHbCWCnRckGlc6Bx/OhWwIYFNAn+FIydY8SZ0QmVu3xTQ==}
