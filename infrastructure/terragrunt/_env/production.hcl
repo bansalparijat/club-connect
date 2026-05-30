@@ -3,5 +3,5 @@ inputs = {
   image_tag = "stable"
 
   # Secrets Manager ARN for production — replace with real ARN after first deploy
-  secrets_arn = "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:club-connect/production-XXXXXX"
+  secrets_arn = "arn:aws:secretsmanager:ap-south-1:977574653892:secret:club-connect/production"
 }
