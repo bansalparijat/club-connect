@@ -6,13 +6,16 @@
 #   - AWS CLI configured with admin credentials
 #   - Region: ap-south-1
 #
-# Usage: bash scripts/bootstrap-aws.sh
+# Usage: AWS_PROFILE=clubconnect bash scripts/bootstrap-aws.sh
 
 set -e
 
+export AWS_PROFILE="${AWS_PROFILE:-clubconnect}"
 REGION="ap-south-1"
 STATE_BUCKET="club-connect-tf-state"
 LOCK_TABLE="club-connect-tf-locks"
+
+echo "Using AWS profile: $AWS_PROFILE"
 
 echo "==> Creating S3 bucket for Terraform state..."
 aws s3api create-bucket \
