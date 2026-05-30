@@ -91,7 +91,7 @@ jobs:
 
     env:
       AWS_REGION: ap-south-1
-      ECR_REPO: club-connect-api-dev
+      ECR_REPO: club-connect-api-staging
 
     steps:
       - uses: actions/checkout@v6
@@ -133,11 +133,11 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           aws lambda update-function-code \
-            --function-name club-connect-api-dev \
+            --function-name club-connect-api-staging \
             --image-uri $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG \
             --no-cli-pager
           aws lambda wait function-updated \
-            --function-name club-connect-api-dev
+            --function-name club-connect-api-staging
 
       - name: Update Worker Lambda
         env:
@@ -145,15 +145,15 @@ jobs:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           aws lambda update-function-code \
-            --function-name club-connect-worker-dev \
+            --function-name club-connect-worker-staging \
             --image-uri $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG \
             --no-cli-pager
           aws lambda wait function-updated \
-            --function-name club-connect-worker-dev
+            --function-name club-connect-worker-staging
 
       - name: Smoke test
         run: |
-          API_URL=$(aws apigatewayv2 get-apis --query "Items[?Name=='club-connect-dev'].ApiEndpoint" --output text)
+          API_URL=$(aws apigatewayv2 get-apis --query "Items[?Name=='club-connect-staging'].ApiEndpoint" --output text)
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/health" --max-time 30)
           if [ "$STATUS" != "200" ]; then
             echo "Smoke test failed: HTTP $STATUS"
