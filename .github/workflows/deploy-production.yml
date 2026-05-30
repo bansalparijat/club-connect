@@ -17,6 +17,7 @@ permissions:
   contents: read
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   AWS_REGION: ap-south-1
   ENV: production
   ECR_REPO: club-connect-api-production
