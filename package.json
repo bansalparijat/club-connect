@@ -8,11 +8,13 @@
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
-    "db:seed": "pnpm --filter @club-connect/db seed"
+    "db:seed": "pnpm --filter @club-connect/db seed",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "husky": "^9.1.7",
     "turbo": "^2.9.16",
     "typescript": "^5.4.0",
     "vite": "^6.0.0",
