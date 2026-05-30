@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   View,
   Text,
@@ -33,7 +33,7 @@ export default function BulkImportScreen() {
   const [result, setResult] = useState<ImportResult | null>(null)
   const [loading, setLoading] = useState(false)
 
-  async function pickFile() {
+  const pickFile = useCallback(async () => {
     const picked = await DocumentPicker.getDocumentAsync({
       type: [
         'text/csv',
@@ -73,7 +73,7 @@ export default function BulkImportScreen() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [activeClubId])
 
   return (
     <SafeAreaView style={styles.safe}>

@@ -331,10 +331,10 @@ export type MatchDetail = {
   parameters: Array<{ key: string; value: string; isCustom: boolean }>
   houses: House[]
   availability: {
-    confirmed: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null }; respondedAt: string; house: PlayerHouse | null; hasPaid: boolean }>
-    waitlisted: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null }; position: number; respondedAt: string; house: PlayerHouse | null; hasPaid: boolean }>
-    unavailable: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null } }>
-    dropped: Array<{ user: { id: string; name: string; profilePhotoUrl: string | null } }>
+    confirmed: Array<{ user: { id: string; phone: string; name: string; profilePhotoUrl: string | null }; respondedAt: string; house: PlayerHouse | null; hasPaid: boolean }>
+    waitlisted: Array<{ user: { id: string; phone: string; name: string; profilePhotoUrl: string | null }; position: number; respondedAt: string; house: PlayerHouse | null; hasPaid: boolean }>
+    unavailable: Array<{ user: { id: string; phone: string; name: string; profilePhotoUrl: string | null } }>
+    dropped: Array<{ user: { id: string; phone: string; name: string; profilePhotoUrl: string | null } }>
   }
   myStatus: 'CONFIRMED' | 'WAITLISTED' | 'UNAVAILABLE' | 'DROPPED' | null
   fee: { amount: string; currency: string; myMarkedPaid: boolean } | null

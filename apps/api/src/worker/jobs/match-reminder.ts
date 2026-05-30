@@ -8,7 +8,7 @@ export async function runMatchReminderJob(): Promise<void> {
   // Scan for MatchAvailability items with CONFIRMED status
   // Then filter to matches in the next 24 hours
   const { ScanCommand } = await import('@aws-sdk/lib-dynamodb')
-  const { docClient, getTableName } = await import('@club-connect/db/src/client')
+  const { docClient, getTableName } = await import('@club-connect/db')
 
   const now = new Date()
   const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000)

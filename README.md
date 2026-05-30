@@ -8,8 +8,8 @@ Install these on a clean machine before starting:
 
 | Tool | Version | Install |
 |---|---|---|
-| **Node.js** | 20+ | [nodejs.org](https://nodejs.org/) or `brew install node@20` |
-| **pnpm** | 8.15+ | `npm install -g pnpm@8.15.1` |
+| **Node.js** | 22+ | `nvm install 22` or [nodejs.org](https://nodejs.org/) |
+| **pnpm** | 10+ | `corepack enable` (auto-installs from packageManager field) |
 | **Docker Desktop** | Any recent | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
 | **AWS CLI** | v2 | `brew install awscli` |
 
@@ -24,8 +24,8 @@ For mobile development (optional):
 Verify everything is ready:
 
 ```bash
-node --version    # v20.x.x or higher
-pnpm --version    # 8.15.x
+node --version    # v22.x.x or higher
+pnpm --version    # 10.x.x
 docker --version  # Docker version 2x.x.x
 aws --version     # aws-cli/2.x.x
 ```
@@ -69,6 +69,9 @@ club-connect/
 ```bash
 git clone <repo-url> club-connect
 cd club-connect
+git checkout dev    # always work on dev, never commit to main
+nvm use             # switches to Node 22 (reads .nvmrc)
+corepack enable     # activates pnpm 10 from packageManager field
 pnpm install
 ```
 
@@ -258,12 +261,19 @@ aws dynamodb scan \
 
 Tests require DynamoDB Local to be running (same as development setup).
 
+A **pre-commit hook** (husky) runs lint, typecheck, and tests automatically before every commit. You don't need to run them manually unless debugging — but DynamoDB Local must be running for commits to succeed.
+
 ```bash
-# Ensure DynamoDB Local is running
+# Ensure DynamoDB Local is running (required for commits!)
 docker start dynamodb-local || bash scripts/local-dynamo.sh
 
-# Run all tests (both packages in parallel via turborepo)
-pnpm test
+# Run individually
+pnpm lint          # ESLint across API + mobile
+pnpm typecheck     # TypeScript check across all packages
+pnpm test          # Vitest tests (102 tests, both packages)
+
+# Or all three (same as what the pre-commit hook runs)
+pnpm lint && pnpm typecheck && pnpm test
 ```
 
 ### Test Structure
@@ -321,6 +331,31 @@ describe('MyFeature', () => {
 
 ---
 
+## Branching & Deployment Workflow
+
+```
+dev (auto-deploys to dev environment)
+ └── PR → main (protected, production deploys)
+```
+
+**`main` is protected** — no direct pushes allowed. All changes go through `dev` first.
+
+```bash
+# Daily development — always on dev
+git checkout dev
+# ... make changes ...
+git add . && git commit -m "feat: my feature"
+git push origin dev          # triggers CI + auto-deploy to dev
+
+# When ready for production
+# 1. Create PR: dev → main (on GitHub)
+# 2. CI must pass on the PR
+# 3. Merge the PR
+# 4. Go to Actions → Deploy Production → Run workflow (on main)
+```
+
+---
+
 ## Available Scripts
 
 From the repo root:
@@ -342,18 +377,17 @@ From the repo root:
 
 ## Version Constraints
 
-| Package | Pinned Version | Reason |
+| Package | Version | Reason |
 |---|---|---|
-| Node.js | 20.x | AWS Lambda runtime; SDK warns about Node 22 after Jan 2027 |
+| Node.js | 22.x | Required by pnpm 10, Vitest 4; `.nvmrc` ensures consistency |
+| pnpm | 10.x | Set via `packageManager` field; auto-installed by `corepack enable` |
 | Next.js | 14.x | Lambda Web Adapter tested with 14; 15+ has breaking changes |
 | TypeScript | 5.x | TS 6 is new with breaking changes; stay stable |
-| Vitest | 3.x | Vitest 4 requires Node 22+ (native rolldown binding) |
-| Vite | 6.x | Vite 7+ requires ESM-only Node 22+; Vitest 3 needs Vite 6 |
+| Vitest | 4.x | Latest; uses rolldown native bindings (requires Node 22+) |
+| ESLint | 9.x | Latest; flat config used for both API and mobile |
 | Zod | 3.x | Zod 4 is a major rewrite; migration not trivial |
 | jose | 5.x | jose 6 has breaking API changes |
 | Expo | SDK 54 | Update all expo packages together via `npx expo install --fix` |
-
-When ready to upgrade Node to 22+, Vitest 4 + Vite 8 + the latest AWS SDK can all be updated together.
 
 ---
 

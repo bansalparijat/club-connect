@@ -10,13 +10,13 @@ export default function RootLayout() {
 
   useEffect(() => {
     restoreSession()
-  }, [])
+  }, [restoreSession])
 
   useEffect(() => {
     if (isAuthenticated) {
       loadClubs()
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, loadClubs])
 
   if (isLoading) return null
 

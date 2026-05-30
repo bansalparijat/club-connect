@@ -46,13 +46,15 @@ club-connect/
 - **DynamoDB reserved words**: Use `#alias` in UpdateExpression for reserved words (e.g., `capacity`, `status`, `date`, `name`). See [AWS reserved words list](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ReservedWords.html).
 
 ### Testing
-- **Framework**: Vitest 3.x (pinned for Node 20 compat; Vitest 4 needs Node 22)
+- **Pre-commit hook** (husky): runs `pnpm lint && pnpm typecheck && pnpm test` before every commit. DynamoDB Local must be running.
+- **Framework**: Vitest 4.x
 - **Run all**: `pnpm test` — requires DynamoDB Local running on port 8000
 - **DB unit tests**: `packages/db/src/__tests__/repos/` — one file per repository, tests against DynamoDB Local
 - **API unit tests**: `apps/api/src/__tests__/lib/` — JWT, OTP lib tests
 - **Integration tests**: `apps/api/src/__tests__/integration/` — full flows (auth, club, match+availability, unavailability)
 - Each test suite gets a fresh DynamoDB table via `setupFiles`
 - Tests run sequentially (`fileParallelism: false`) to avoid DynamoDB Local contention
+- To skip hooks in exceptional cases: `git commit --no-verify` (avoid unless necessary)
 
 ### Mobile (Expo)
 - **Never pass `+` phone numbers as URL params** — expo-router decodes `+` as a space. Use Zustand store (`pendingPhone`) for cross-screen phone state during auth flow.
@@ -76,7 +78,17 @@ club-connect/
 - New users created with `name: ''` (empty string) — mobile checks `!data.user.name` to route to profile setup
 - `GET /api/clubs/:id` uses `withAuth` (any active member); includes `admins[]` in response
 
+### Lint
+- **API**: ESLint 9 + `typescript-eslint` (flat config). Config: `apps/api/eslint.config.mjs`. Runs `eslint src/` (not `next lint`).
+- **Mobile**: ESLint 9 + `eslint-config-expo/flat`. Config: `apps/mobile/eslint.config.js`.
+- Both must produce **zero errors and zero warnings** before commit (pre-commit hook enforces this).
+- All API routes that call DynamoDB must export `dynamic = 'force-dynamic'` to prevent Next.js build-time pre-rendering.
+- Run all: `pnpm lint`
+
 ### Git / GitHub
+- **Branching**: All work goes to `dev` branch. `main` is protected — no direct pushes, only PRs from `dev`.
+- **Workflow**: commit to `dev` → push → auto-deploys to dev env → when stable, PR `dev` → `main` → merge → manual production deploy
+- **Never commit directly to `main`** — it is protected and will reject direct pushes
 - Remote alias: `git@github.com-bansalparijat:bansalparijat/club-connect.git`
 - Pre-push hook may require `SECRET_SCAN_LOCAL=false git push ...` to bypass secret scanning
 

@@ -23,7 +23,7 @@ const RESEND_TIMEOUT = 30
 export default function OtpScreen() {
   const router = useRouter()
   const phone = useAuthStore((s) => s.pendingPhone) ?? ''
-  const { setAuth, setPendingPhone } = useAuthStore()
+  const { setAuth } = useAuthStore()
   const loadClubs = useClubStore((s) => s.loadClubs)
 
   const [otp, setOtp] = useState('')
@@ -38,7 +38,7 @@ export default function OtpScreen() {
     if (!phone) {
       router.replace('/(auth)/phone')
     }
-  }, [])
+  }, [phone, router])
 
   // Delayed focus fixes Android keyboard not appearing on hidden inputs
   useEffect(() => {
@@ -53,7 +53,11 @@ export default function OtpScreen() {
       clearTimeout(focusTimeout)
       clearInterval(timer)
     }
-  }, [])
+  }, [phone])
+
+  const handleBack = useCallback(() => {
+    router.back()
+  }, [router])
 
   // Handle Android hardware back button
   useFocusEffect(
@@ -63,12 +67,8 @@ export default function OtpScreen() {
         return true
       })
       return () => sub.remove()
-    }, [])
+    }, [handleBack])
   )
-
-  function handleBack() {
-    router.back()
-  }
 
   async function handleVerify(code: string) {
     if (code.length < OTP_LENGTH) return
