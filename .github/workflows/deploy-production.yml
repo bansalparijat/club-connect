@@ -17,7 +17,6 @@ permissions:
   contents: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   AWS_REGION: ap-south-1
   ENV: production
   ECR_REPO: club-connect-api-production
@@ -27,7 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
-    # Only allow production deploys from main branch
     if: github.ref == 'refs/heads/main'
 
     steps:
@@ -45,12 +43,10 @@ jobs:
           ref: ${{ steps.ref.outputs.sha }}
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.1
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile

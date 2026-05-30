@@ -47,7 +47,7 @@ club-connect/
 
 ### Testing
 - **Pre-commit hook** (husky): runs `pnpm lint && pnpm typecheck && pnpm test` before every commit. DynamoDB Local must be running.
-- **Framework**: Vitest 3.x (pinned for Node 20 compat; Vitest 4 needs Node 22)
+- **Framework**: Vitest 4.x
 - **Run all**: `pnpm test` — requires DynamoDB Local running on port 8000
 - **DB unit tests**: `packages/db/src/__tests__/repos/` — one file per repository, tests against DynamoDB Local
 - **API unit tests**: `apps/api/src/__tests__/lib/` — JWT, OTP lib tests

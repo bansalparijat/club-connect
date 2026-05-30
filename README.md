@@ -8,8 +8,8 @@ Install these on a clean machine before starting:
 
 | Tool | Version | Install |
 |---|---|---|
-| **Node.js** | 20+ | [nodejs.org](https://nodejs.org/) or `brew install node@20` |
-| **pnpm** | 8.15+ | `npm install -g pnpm@8.15.1` |
+| **Node.js** | 22+ | `nvm install 22` or [nodejs.org](https://nodejs.org/) |
+| **pnpm** | 10+ | `corepack enable` (auto-installs from packageManager field) |
 | **Docker Desktop** | Any recent | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
 | **AWS CLI** | v2 | `brew install awscli` |
 
@@ -24,8 +24,8 @@ For mobile development (optional):
 Verify everything is ready:
 
 ```bash
-node --version    # v20.x.x or higher
-pnpm --version    # 8.15.x
+node --version    # v22.x.x or higher
+pnpm --version    # 10.x.x
 docker --version  # Docker version 2x.x.x
 aws --version     # aws-cli/2.x.x
 ```
@@ -70,6 +70,8 @@ club-connect/
 git clone <repo-url> club-connect
 cd club-connect
 git checkout dev    # always work on dev, never commit to main
+nvm use             # switches to Node 22 (reads .nvmrc)
+corepack enable     # activates pnpm 10 from packageManager field
 pnpm install
 ```
 
@@ -375,18 +377,17 @@ From the repo root:
 
 ## Version Constraints
 
-| Package | Pinned Version | Reason |
+| Package | Version | Reason |
 |---|---|---|
-| Node.js | 20.x | AWS Lambda runtime; SDK warns about Node 22 after Jan 2027 |
+| Node.js | 22.x | Required by pnpm 10, Vitest 4; `.nvmrc` ensures consistency |
+| pnpm | 10.x | Set via `packageManager` field; auto-installed by `corepack enable` |
 | Next.js | 14.x | Lambda Web Adapter tested with 14; 15+ has breaking changes |
 | TypeScript | 5.x | TS 6 is new with breaking changes; stay stable |
-| Vitest | 3.x | Vitest 4 requires Node 22+ (native rolldown binding) |
-| Vite | 6.x | Vite 7+ requires ESM-only Node 22+; Vitest 3 needs Vite 6 |
+| Vitest | 4.x | Latest; uses rolldown native bindings (requires Node 22+) |
+| ESLint | 9.x | Latest; flat config used for both API and mobile |
 | Zod | 3.x | Zod 4 is a major rewrite; migration not trivial |
 | jose | 5.x | jose 6 has breaking API changes |
 | Expo | SDK 54 | Update all expo packages together via `npx expo install --fix` |
-
-When ready to upgrade Node to 22+, Vitest 4 + Vite 8 + the latest AWS SDK can all be updated together.
 
 ---
 

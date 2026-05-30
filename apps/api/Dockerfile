@@ -1,10 +1,10 @@
 # ─── Builder stage ────────────────────────────────────────────────────────────
-FROM public.ecr.aws/docker/library/node:20-slim AS builder
+FROM public.ecr.aws/docker/library/node:22-slim AS builder
 
 WORKDIR /app
 
 # Install pnpm
-RUN npm install -g pnpm@8.15.1
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
 # Copy workspace manifests
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -26,7 +26,7 @@ WORKDIR /app/apps/api
 RUN pnpm run build
 
 # ─── Production stage ─────────────────────────────────────────────────────────
-FROM public.ecr.aws/docker/library/node:20-slim AS runner
+FROM public.ecr.aws/docker/library/node:22-slim AS runner
 
 # Install Lambda Web Adapter
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4 \
